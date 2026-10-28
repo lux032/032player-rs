@@ -19,7 +19,7 @@ os = { path = "crates/os" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-reqwest = { version = "0.13", default-features = false, features = ["default-tls", "http2", "json", "system-proxy"] }
+reqwest = { version = "0.13", default-features = false, features = ["default-tls", "http2", "json", "multipart", "system-proxy"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 url = "2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
@@ -36,6 +36,7 @@ keyring = "4.2"
 souvlaki = { version = "0.9", default-features = false, features = ["use_zbus"] }
 tray-icon = { version = "0.26", default-features = false }
 raw-window-handle = "0.6"
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

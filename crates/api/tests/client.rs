@@ -1,6 +1,6 @@
 use api::{
-    AlbumListQuery, AlbumSort, AuthError, Client, Feature, SortOrder, TrackListQuery, TrackSort,
-    authenticate,
+    AlbumListQuery, AlbumSort, ArtistListQuery, ArtistSort, AuthError, Client, Feature, SortOrder,
+    TrackListQuery, TrackSort, authenticate,
 };
 use serde_json::{Value, json};
 use wiremock::matchers::{header, method, path, query_param, query_param_is_missing};
@@ -326,4 +326,185 @@ fn media_urls_carry_the_media_token_never_the_api_token() {
         client.artist_image_url(4, None).as_str(),
         "https://music.example.com/api/v1/artists/4/image?mediaToken=m+t%26"
     );
+}
+
+#[tokio::test]
+async fn artists_go_through_browse_or_the_legacy_list() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/browse/artists"))
+        .and(query_param("role", "album"))
+        .and(query_param("sort", "name"))
+        .and(query_param("order", "desc"))
+        .and(query_param("offset", "0"))
+        .and(query_param("limit", "20"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "items": [{ "id": 3, "name": "YOASOBI", "imageUrl": "/api/v1/artists/3/image", "albumCount": 4, "trackCount": 31, "isFavorite": true }],
+            "total": 1, "limit": 20, "offset": 0,
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/artists"))
+        .and(query_param("role", "all"))
+        .and(query_param_is_missing("sort"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "items": [], "total": 0, "limit": 20, "offset": 0,
+        })))
+        .mount(&server)
+        .await;
+
+    let client = Client::new(&server.uri(), API, MEDIA).unwrap();
+    let browse = ArtistListQuery {
+        album_artists_only: true,
+        sort: Some(ArtistSort::Name),
+        order: Some(SortOrder::Desc),
+        ..ArtistListQuery::default()
+    };
+    let page = client.artists(true, &browse, 0, 20).await.unwrap();
+    assert_eq!(page.total, 1);
+    assert_eq!(page.items[0].name, "YOASOBI");
+    assert!(page.items[0].is_favorite);
+
+    // Without browse the random sort is dropped rather than sent.
+    let legacy = ArtistListQuery {
+        album_artists_only: false,
+        sort: Some(ArtistSort::Random),
+        ..ArtistListQuery::default()
+    };
+    assert!(
+        client
+            .artists(false, &legacy, 0, 20)
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn album_detail_pages_the_tracks_the_embed_did_not_return() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/albums/7"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "album": {
+                "id": 7, "title": "アルバム", "artist": "A", "trackCount": 3,
+                "artworkUrl": "/api/v1/artwork/9", "genres": "rock, j-pop", "label": "L",
+            },
+            "tracks": [{ "id": 70, "albumId": 7, "title": "一曲目" }],
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/tracks"))
+        .and(query_param("album", "7"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "items": [
+                { "id": 70, "albumId": 7, "title": "一曲目", "codec": "flac", "bitDepth": 24, "sampleRate": 96000 },
+                { "id": 71, "albumId": 7, "title": "二曲目", "codec": "flac", "bitDepth": 16, "sampleRate": 44100 },
+                { "id": 72, "albumId": 7, "title": "三曲目", "codec": "mp3", "bitrateKbps": 320 },
+            ],
+            "total": 3, "limit": 500, "offset": 0,
+        })))
+        .mount(&server)
+        .await;
+
+    let client = Client::new(&server.uri(), API, MEDIA).unwrap();
+    let (album, embedded) = client.album(7).await.unwrap();
+    assert_eq!((album.id, embedded.len()), (7, 1));
+}
+
+#[tokio::test]
+async fn playlist_writes_send_the_revision_and_read_json_back() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/playlists/5/items/remove"))
+        .and(header("authorization", format!("Bearer {API}").as_str()))
+        .and(wiremock::matchers::body_json(json!({
+            "trackIds": [3, 4], "expectedRevision": 11,
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "removed": 2, "total": 8, "revision": 12,
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/api/v1/playlists/5/order"))
+        .and(wiremock::matchers::body_json(json!({
+            "trackIds": [4, 3], "expectedRevision": 12,
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "revision": 13 })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/api/v1/playlists/5/artwork"))
+        .and(header("content-type", "multipart/form-data; boundary="))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "playlist": { "id": 5, "name": "P", "revision": 14 },
+        })))
+        .mount(&server)
+        .await;
+
+    let client = Client::new(&server.uri(), API, MEDIA).unwrap();
+    let result = client.remove_playlist_items(5, &[3, 4], 11).await.unwrap();
+    assert_eq!((result.removed, result.revision), (2, 12));
+    let reordered = client.reorder_playlist_items(5, &[4, 3], 12).await.unwrap();
+    assert_eq!(reordered.revision, 13);
+    client
+        .upload_playlist_artwork(5, b"jpegbytes".to_vec(), "cover.jpg")
+        .await
+        .unwrap_or_default();
+}
+
+#[tokio::test]
+async fn stale_playlist_revision_is_a_recognizable_conflict() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/playlists/5/items/remove"))
+        .respond_with(ResponseTemplate::new(409).set_body_json(json!({
+            "error": { "code": "playlist_conflict", "message": "stale revision" }
+        })))
+        .mount(&server)
+        .await;
+    let client = Client::new(&server.uri(), API, MEDIA).unwrap();
+    let error = client.remove_playlist_items(5, &[1], 3).await.unwrap_err();
+    assert_eq!(
+        (error.status(), error.code()),
+        (Some(409), Some("playlist_conflict"))
+    );
+}
+
+#[tokio::test]
+async fn favorites_sort_is_client_side_and_similar_tracks_drop_errors() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/favorites/albums"))
+        .and(query_param("limit", "500"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "items": [{ "id": 1, "title": "A", "year": 2001 }],
+            "total": 1, "limit": 500, "offset": 0,
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/tracks/9/similar"))
+        .and(query_param("limit", "30"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "items": [
+                { "track": { "id": 10, "title": "近い" }, "distance": 0.2, "score": 0.8 },
+                { "track": { "id": 9, "title": "自分" }, "distance": 0, "score": 1 },
+            ],
+        })))
+        .mount(&server)
+        .await;
+
+    let client = Client::new(&server.uri(), API, MEDIA).unwrap();
+    let albums: Vec<api::Album> = client.favorites("albums").await.unwrap();
+    assert_eq!(albums[0].id, 1);
+    let similar = client.similar_tracks(9, 30).await.unwrap();
+    assert_eq!(similar.len(), 2);
+    assert_eq!(similar[0].track.id, 10);
 }

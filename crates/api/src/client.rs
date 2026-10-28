@@ -4,8 +4,11 @@ use serde::de::DeserializeOwned;
 use url::Url;
 
 use crate::error::{ApiError, AuthError};
-use crate::query::{AlbumListQuery, Query, TrackListQuery};
-use crate::types::{Album, Capabilities, ErrorBody, Lyrics, Page, Track};
+use crate::query::{AlbumListQuery, ArtistListQuery, Query, TrackListQuery};
+use crate::types::{
+    Album, Artist, ArtistDetail, Capabilities, ErrorBody, Lyrics, Page, Playlist, PlaylistDetail,
+    PlaylistItemResult, SimilarTrack, Track,
+};
 
 /// Largest page the 032 list endpoints accept (`capabilities.limits.maxPageSize`).
 pub const MAX_PAGE_SIZE: u32 = 500;
@@ -216,6 +219,263 @@ impl Client {
         Ok((status, json))
     }
 
+    // ------------------------------------------------------------ catalog
+
+    /// Artists via `/browse/artists`, or legacy `/artists` without `browse`.
+    pub async fn artists(
+        &self,
+        browse: bool,
+        query: &ArtistListQuery,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Page<Artist>, ApiError> {
+        let (path, mut q) = query.source(browse);
+        q.page(offset, limit);
+        self.get(path, &q).await
+    }
+
+    /// `GET /artists/{id}`: the artist, its discography and top tracks.
+    pub async fn artist(&self, artist_id: i64) -> Result<ArtistDetail, ApiError> {
+        self.get(&format!("/artists/{artist_id}"), &Query::new())
+            .await
+    }
+
+    /// `GET /albums/{id}`: the album and up to 500 of its tracks.
+    pub async fn album(&self, album_id: i64) -> Result<(Album, Vec<Track>), ApiError> {
+        let body: AlbumDetailBody = self
+            .get(&format!("/albums/{album_id}"), &Query::new())
+            .await?;
+        Ok((body.album, body.tracks))
+    }
+
+    /// `GET /playlists`, whole list in pages.
+    pub async fn playlists(&self) -> Result<Vec<Playlist>, ApiError> {
+        let mut out = Vec::new();
+        loop {
+            let offset = u32::try_from(out.len()).unwrap_or(u32::MAX);
+            let mut q = Query::new();
+            q.page(offset, MAX_PAGE_SIZE);
+            let page: Page<Playlist> = self.get("/playlists", &q).await?;
+            let n = page.items.len();
+            out.extend(page.items);
+            if n == 0 || i64::try_from(out.len()).unwrap_or(i64::MAX) >= page.total {
+                return Ok(out);
+            }
+        }
+    }
+
+    /// `GET /playlists/{id}`: the playlist and its tracks in order.
+    pub async fn playlist(&self, playlist_id: i64) -> Result<PlaylistDetail, ApiError> {
+        self.get(&format!("/playlists/{playlist_id}"), &Query::new())
+            .await
+    }
+
+    /// `POST /playlists`; returns the created playlist.
+    pub async fn create_playlist(
+        &self,
+        name: &str,
+        description: &str,
+    ) -> Result<Playlist, ApiError> {
+        let body = serde_json::json!({ "name": name, "description": description });
+        self.send_json(Method::POST, "/playlists", &body).await
+    }
+
+    /// `PATCH /playlists/{id}`; returns the updated playlist.
+    pub async fn update_playlist(
+        &self,
+        playlist_id: i64,
+        name: &str,
+        description: &str,
+    ) -> Result<Playlist, ApiError> {
+        let body = serde_json::json!({ "name": name, "description": description });
+        self.send_json(Method::PATCH, &format!("/playlists/{playlist_id}"), &body)
+            .await
+    }
+
+    /// `DELETE /playlists/{id}`.
+    pub async fn delete_playlist(&self, playlist_id: i64) -> Result<(), ApiError> {
+        self.send(
+            Method::DELETE,
+            &format!("/playlists/{playlist_id}"),
+            &Query::new(),
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// `PUT /playlists/{id}/items`: replaces the whole ordered content.
+    pub async fn replace_playlist_items(
+        &self,
+        playlist_id: i64,
+        track_ids: &[i64],
+    ) -> Result<PlaylistDetail, ApiError> {
+        let body = serde_json::json!({ "trackIds": track_ids });
+        self.send_json(
+            Method::PUT,
+            &format!("/playlists/{playlist_id}/items"),
+            &body,
+        )
+        .await
+    }
+
+    /// `POST /playlists/{id}/items/append` (first occurrence order).
+    pub async fn append_playlist_items(
+        &self,
+        playlist_id: i64,
+        track_ids: &[i64],
+    ) -> Result<PlaylistItemResult, ApiError> {
+        let body = serde_json::json!({ "trackIds": track_ids });
+        self.send_json(
+            Method::POST,
+            &format!("/playlists/{playlist_id}/items/append"),
+            &body,
+        )
+        .await
+    }
+
+    /// `POST /playlists/{id}/items/append` with an album.
+    pub async fn append_playlist_album(
+        &self,
+        playlist_id: i64,
+        album_id: i64,
+    ) -> Result<PlaylistItemResult, ApiError> {
+        let body = serde_json::json!({ "albumId": album_id });
+        self.send_json(
+            Method::POST,
+            &format!("/playlists/{playlist_id}/items/append"),
+            &body,
+        )
+        .await
+    }
+
+    /// `POST /playlists/{id}/items/remove`; 409 `playlist_conflict` when
+    /// `expected_revision` is stale.
+    pub async fn remove_playlist_items(
+        &self,
+        playlist_id: i64,
+        track_ids: &[i64],
+        expected_revision: i64,
+    ) -> Result<PlaylistItemResult, ApiError> {
+        let body = serde_json::json!({
+            "trackIds": track_ids,
+            "expectedRevision": expected_revision,
+        });
+        self.send_json(
+            Method::POST,
+            &format!("/playlists/{playlist_id}/items/remove"),
+            &body,
+        )
+        .await
+    }
+
+    /// `PUT /playlists/{id}/order`: `track_ids` must hold every track once.
+    pub async fn reorder_playlist_items(
+        &self,
+        playlist_id: i64,
+        track_ids: &[i64],
+        expected_revision: i64,
+    ) -> Result<PlaylistItemResult, ApiError> {
+        let body = serde_json::json!({
+            "trackIds": track_ids,
+            "expectedRevision": expected_revision,
+        });
+        self.send_json(
+            Method::PUT,
+            &format!("/playlists/{playlist_id}/order"),
+            &body,
+        )
+        .await
+    }
+
+    /// `DELETE /playlists/{id}/artwork`: back to the automatic album artwork.
+    pub async fn delete_playlist_artwork(&self, playlist_id: i64) -> Result<(), ApiError> {
+        self.send(
+            Method::DELETE,
+            &format!("/playlists/{playlist_id}/artwork"),
+            &Query::new(),
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// `PUT /playlists/{id}/artwork` with a multipart `image` field
+    /// (JPEG / PNG / WebP, at most 10 MiB).
+    pub async fn upload_playlist_artwork(
+        &self,
+        playlist_id: i64,
+        bytes: Vec<u8>,
+        filename: &str,
+    ) -> Result<Playlist, ApiError> {
+        let part = reqwest::multipart::Part::bytes(bytes).file_name(filename.to_owned());
+        let form = reqwest::multipart::Form::new().part("image", part);
+        let url = self.api_url(&format!("/playlists/{playlist_id}/artwork"), &Query::new())?;
+        let res = self
+            .http
+            .put(url)
+            .header(header::ACCEPT, "application/json")
+            .bearer_auth(&self.api_token)
+            .multipart(form)
+            .send()
+            .await?;
+        if !res.status().is_success() {
+            return Err(error_from_response(res).await);
+        }
+        decode(res).await
+    }
+
+    /// `PUT` / `DELETE /{segment}/{id}/favorite` for albums, tracks and
+    /// artists; a server without the endpoint fails with 404 / 405.
+    pub async fn set_favorite(
+        &self,
+        segment: &str,
+        id: i64,
+        favorite: bool,
+    ) -> Result<(), ApiError> {
+        let method = if favorite {
+            Method::PUT
+        } else {
+            Method::DELETE
+        };
+        self.send(
+            method,
+            &format!("/{segment}/{id}/favorite"),
+            &Query::new(),
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// `GET /favorites/{segment}` (albums or tracks), whole list in pages.
+    pub async fn favorites<T: DeserializeOwned>(&self, segment: &str) -> Result<Vec<T>, ApiError> {
+        let mut out = Vec::new();
+        loop {
+            let offset = u32::try_from(out.len()).unwrap_or(u32::MAX);
+            let mut q = Query::new();
+            q.page(offset, MAX_PAGE_SIZE);
+            let page: Page<T> = self.get(&format!("/favorites/{segment}"), &q).await?;
+            let n = page.items.len();
+            out.extend(page.items);
+            if n == 0 || i64::try_from(out.len()).unwrap_or(i64::MAX) >= page.total {
+                return Ok(out);
+            }
+        }
+    }
+
+    /// `GET /tracks/{id}/similar` (metadata similarity, not acoustic).
+    pub async fn similar_tracks(
+        &self,
+        track_id: i64,
+        limit: u32,
+    ) -> Result<Vec<SimilarTrack>, ApiError> {
+        let mut q = Query::new();
+        q.push("limit", limit.clamp(1, 100));
+        let body: SimilarBody = self.get(&format!("/tracks/{track_id}/similar"), &q).await?;
+        Ok(body.items)
+    }
+
     /// Lyrics of a track; `None` when the server has none (404).
     pub async fn lyrics(&self, track_id: i64) -> Result<Option<Lyrics>, ApiError> {
         match self
@@ -331,6 +591,20 @@ pub async fn authenticate_client(client: Client) -> Result<(Client, Capabilities
     }
     client.verify_media_token().await?;
     Ok((client, capabilities))
+}
+
+#[derive(serde::Deserialize)]
+struct AlbumDetailBody {
+    #[serde(default)]
+    album: Album,
+    #[serde(default)]
+    tracks: Vec<Track>,
+}
+
+#[derive(serde::Deserialize)]
+struct SimilarBody {
+    #[serde(default)]
+    items: Vec<SimilarTrack>,
 }
 
 async fn decode<T: DeserializeOwned>(res: reqwest::Response) -> Result<T, ApiError> {

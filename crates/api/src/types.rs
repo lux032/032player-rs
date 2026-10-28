@@ -159,6 +159,8 @@ pub enum Feature {
     LyricsOnline,
     LyricsTranslation,
     PlaylistArtwork,
+    /// Add / remove / reorder playlist items (`docs/api/playlist-operations.md`).
+    PlaylistItemOps,
     TrackWorks,
     DailyMixes,
     PlaybackContext,
@@ -174,6 +176,7 @@ impl Feature {
             Self::LyricsOnline => "lyricsOnline",
             Self::LyricsTranslation => "lyricsTranslation",
             Self::PlaylistArtwork => "playlistArtwork",
+            Self::PlaylistItemOps => "playlistItemOps",
             Self::TrackWorks => "trackWorks",
             Self::DailyMixes => "dailyMixes",
             Self::PlaybackContext => "playbackContext",
@@ -238,6 +241,89 @@ pub struct Lyrics {
     pub source: Option<String>,
     pub source_name: Option<String>,
     pub synced: bool,
+}
+
+/// `GET /api/v1/artists` and `/browse/artists`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Artist {
+    pub id: i64,
+    pub name: String,
+    pub image_url: String,
+    pub album_count: i64,
+    pub track_count: i64,
+    pub is_favorite: bool,
+}
+
+/// One row of the artist detail `releases` (personal / collaboration / appearance).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ArtistRelease {
+    #[serde(flatten)]
+    pub album: Album,
+    /// personal | collaboration | appearance | credit
+    pub relation: String,
+}
+
+/// `GET /api/v1/artists/{id}` (album artists).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ArtistDetail {
+    pub artist: Artist,
+    pub albums: Vec<Album>,
+    pub releases: Vec<ArtistRelease>,
+    pub top_tracks: Vec<Track>,
+    pub top_tracks_are_popular: bool,
+    pub tracks_total: i64,
+    pub biography: Option<String>,
+    pub country: String,
+    pub artist_type: String,
+    pub aliases: Vec<String>,
+}
+
+/// `GET /api/v1/playlists` and the `playlist` of a detail.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Playlist {
+    pub id: i64,
+    pub name: String,
+    pub description: String,
+    pub item_count: i64,
+    /// 0 when the server cannot tell (unknown tracks); hidden then.
+    pub duration_millis: i64,
+    pub artwork_url: Option<String>,
+    pub has_custom_artwork: bool,
+    /// Bumped on every item change; sent back with remove / order.
+    pub revision: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// `GET /api/v1/playlists/{id}`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PlaylistDetail {
+    pub playlist: Playlist,
+    pub tracks: Vec<Track>,
+}
+
+/// One item of `GET /api/v1/tracks/{id}/similar`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SimilarTrack {
+    pub track: Track,
+}
+
+/// Result of append / remove / order.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PlaylistItemResult {
+    pub added: i64,
+    pub removed: i64,
+    pub skipped_duplicate: i64,
+    pub skipped_invalid: i64,
+    pub total: i64,
+    pub revision: i64,
 }
 
 /// `{"error":{"code","message"}}`.

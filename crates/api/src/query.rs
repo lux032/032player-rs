@@ -1,4 +1,5 @@
-//! List queries for albums and tracks.
+//! List queries for albums, tracks, artists and the favorites / search
+//! helpers.
 //!
 //! Servers with `features.browse` are read through `/browse/*`, which honours
 //! `order`, `yearFrom`/`yearTo` and adds `sort=random&seed=`. Legacy
@@ -56,14 +57,16 @@ impl Query {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum SortOrder {
+    #[default]
     Asc,
     Desc,
 }
 
 impl SortOrder {
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Asc => "asc",
             Self::Desc => "desc",
@@ -84,6 +87,16 @@ pub enum AlbumSort {
 }
 
 impl AlbumSort {
+    /// Every sort the browse list offers, in menu order.
+    pub const ALL: [Self; 6] = [
+        Self::Added,
+        Self::Title,
+        Self::RecentlyPlayed,
+        Self::Date,
+        Self::Year,
+        Self::Random,
+    ];
+
     fn browse(self) -> &'static str {
         match self {
             Self::Added => "added",
@@ -121,6 +134,18 @@ pub enum TrackSort {
 }
 
 impl TrackSort {
+    /// Every sort the browse list offers, in menu order.
+    pub const ALL: [Self; 8] = [
+        Self::Added,
+        Self::Album,
+        Self::Title,
+        Self::Plays,
+        Self::RecentlyPlayed,
+        Self::Date,
+        Self::Year,
+        Self::Duration,
+    ];
+
     fn browse(self) -> &'static str {
         match self {
             Self::Title => "title",
@@ -224,5 +249,79 @@ impl TrackListQuery {
             q.push_opt("seed", self.seed);
         }
         ("/browse/tracks", q)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArtistSort {
+    Name,
+    AlbumCount,
+    TrackCount,
+    /// Browse only.
+    Random,
+}
+
+impl ArtistSort {
+    /// Every sort the browse list offers, in menu order.
+    pub const ALL: [Self; 4] = [Self::Name, Self::AlbumCount, Self::TrackCount, Self::Random];
+
+    fn browse(self) -> &'static str {
+        match self {
+            Self::Name => "name",
+            Self::AlbumCount => "albums",
+            Self::TrackCount => "tracks",
+            Self::Random => "random",
+        }
+    }
+
+    fn legacy(self) -> Option<&'static str> {
+        match self {
+            Self::Random => None,
+            other => Some(other.browse()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ArtistListQuery {
+    /// Only album artists (`role=album`), the default list.
+    pub album_artists_only: bool,
+    pub favorite: bool,
+    pub search: Option<String>,
+    pub sort: Option<ArtistSort>,
+    pub order: Option<SortOrder>,
+    /// Seed of `sort=random`; keep it for every page of one list.
+    pub seed: Option<i64>,
+}
+
+impl ArtistListQuery {
+    /// Endpoint path and parameters (without paging).
+    pub fn source(&self, browse: bool) -> (&'static str, Query) {
+        let mut q = Query::new();
+        q.push(
+            "role",
+            if self.album_artists_only {
+                "album"
+            } else {
+                "all"
+            },
+        );
+        if self.favorite {
+            q.push("favorite", "true");
+        }
+        q.push_opt("q", self.search.as_deref());
+        if !browse {
+            q.push_opt("sort", self.sort.and_then(ArtistSort::legacy));
+            return ("/artists", q);
+        }
+        let sort = self.sort.map(ArtistSort::browse);
+        q.push_opt("sort", sort);
+        if sort.is_some() {
+            q.push_opt("order", self.order.map(SortOrder::as_str));
+        }
+        if self.sort == Some(ArtistSort::Random) {
+            q.push_opt("seed", self.seed);
+        }
+        ("/browse/artists", q)
     }
 }
