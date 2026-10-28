@@ -1,11 +1,11 @@
 import { Theme } from "theme.slint";
 import {
-    AlbumCard, AlbumRow, TrackRow, LyricLine, QueueRow,
-    LoginView, AlbumGrid, TrackList, LyricsPanel, QueuePanel, PlayerBar,
+    ViewRow, ViewRowChunk, Toolbar, LyricLine, QueueRow,
+    LoginView, ViewPane, LyricsPanel, QueuePanel, PlayerBar,
 } from "views.slint";
 import { SettingsView } from "settings.slint";
 
-export { AlbumCard, AlbumRow, TrackRow, LyricLine, QueueRow }
+export { ViewRow, ViewRowChunk, Toolbar, LyricLine, QueueRow }
 
 component NavItem inherits Rectangle {
     in property <string> text;
@@ -54,25 +54,80 @@ export component AppWindow inherits Window {
     callback login(string, string, string);
     callback logout();
 
-    // Navigation: 0 albums, 1 tracks, 2 settings.
-    in-out property <int> page: 0;
+    // Settings is a page of its own; the rest are library views.
+    in-out property <bool> show-settings: false;
     in property <string> server-label;
 
-    // Albums.
-    in property <[AlbumRow]> album-rows;
-    in property <int> album-loaded;
-    in property <int> album-total;
-    callback album-layout-changed(int, length);
-    callback play-album(int);
-    // (album id, true: play next / false: add to the end)
-    callback enqueue-album(int, bool);
+    // The library views of the sidebar.
+    callback navigate(string);
+    in property <string> current-view: "albums";
+    in property <bool> nav-albums: true;
+    in property <bool> nav-tracks: false;
+    in property <bool> nav-artists: false;
+    in property <bool> nav-playlists: false;
+    in property <bool> nav-favorite-albums: false;
+    in property <bool> nav-favorite-tracks: false;
 
-    // Tracks.
-    in property <[TrackRow]> tracks;
-    in property <int> track-total;
-    callback play-track(int);
-    // (track list index, true: play next / false: add to the end)
-    callback enqueue-track(int, bool);
+    // The main pane.
+    in property <bool> grid;
+    in property <[ViewRowChunk]> rows;
+    in property <[ViewRow]> lines;
+    in property <string> view-title;
+    in property <string> view-subtitle;
+    in property <string> view-details;
+    in property <image> view-cover;
+    in property <bool> has-view-cover;
+    in property <int> view-loaded;
+    in property <int> view-total;
+    in property <Toolbar> toolbar;
+    in property <bool> can-play;
+    in property <bool> shuffle-all-visible;
+    in property <bool> load-failed;
+    in property <bool> editable;
+    callback layout-changed(int, length);
+    callback row-clicked(int);
+    callback row-play(int);
+    // (index, true: play next / false: add to the end)
+    callback row-enqueue(int, bool);
+    callback row-favorite(int, bool);
+    callback row-remove(int);
+    callback play-all();
+    callback enqueue-all(bool);
+    callback shuffle-all();
+    callback sort-picked(int);
+    callback direction-toggled();
+    callback search-submitted(string);
+    callback year-range(int, int);
+    callback favorite-toggled(bool);
+    callback load-more();
+
+    // View context menu: add the whole view to the queue or to a playlist.
+    callback add-view-to-playlist(int);
+    // Right-click "相似歌曲" on a track row.
+    callback show-similar(int);
+
+    // Search field of the sidebar (Enter opens the search view).
+    in-out property <string> search-text;
+    callback search(string);
+
+    // "Add to playlist" menu and the playlist editor of the detail page.
+    in property <[string]> playlist-names;
+    callback playlists-wanted();
+    callback row-add-to-playlist(int, int);
+    callback row-moved(int, int);
+    // Playlist editor: new name / description, rename, delete, artwork.
+    in-out property <bool> show-create-playlist: false;
+    in-out property <string> new-playlist-name;
+    callback create-playlist(string);
+    callback refresh-playlists();
+    // The open playlist's id (0 when no playlist is open).
+    in property <int> editing-playlist: 0;
+    in-out property <bool> show-rename-playlist: false;
+    in-out property <string> rename-playlist-name;
+    callback rename-playlist(int, string);
+    callback delete-playlist(int);
+    callback upload-artwork(int);
+    callback delete-artwork(int);
 
     // Queue (play order).
     in property <[QueueRow]> queue;
@@ -167,25 +222,86 @@ export component AppWindow inherits Window {
                         height: 48px;
                         vertical-alignment: center;
                     }
+                    Rectangle {
+                        height: 32px;
+                        border-radius: Theme.radius;
+                        background: Theme.bg;
+                        border-width: 1px;
+                        border-color: search-box.has-focus ? Theme.accent : Theme.border;
+                        search-box := TextInput {
+                            x: 10px;
+                            width: parent.width - 20px;
+                            height: 100%;
+                            vertical-alignment: center;
+                            text <=> root.search-text;
+                            color: Theme.text;
+                            single-line: true;
+                            accepted => {
+                                root.search(root.search-text);
+                            }
+                        }
+                        if root.search-text == "": Text {
+                            x: 10px;
+                            text: "搜索";
+                            color: Theme.text-faint;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                            height: 100%;
+                        }
+                    }
                     NavItem {
                         text: "专辑";
-                        selected: root.page == 0;
+                        selected: root.nav-albums;
                         clicked => {
-                            root.page = 0;
+                            root.navigate("albums");
                         }
                     }
                     NavItem {
                         text: "曲目";
-                        selected: root.page == 1;
+                        selected: root.nav-tracks;
                         clicked => {
-                            root.page = 1;
+                            root.navigate("tracks");
+                        }
+                    }
+                    NavItem {
+                        text: "艺人";
+                        selected: root.nav-artists;
+                        clicked => {
+                            root.navigate("artists");
+                        }
+                    }
+                    NavItem {
+                        text: "歌单";
+                        selected: root.nav-playlists;
+                        clicked => {
+                            root.navigate("playlists");
+                        }
+                    }
+                    NavItem {
+                        text: "收藏的专辑";
+                        selected: root.nav-favorite-albums;
+                        clicked => {
+                            root.navigate("favorite-albums");
+                        }
+                    }
+                    NavItem {
+                        text: "收藏的曲目";
+                        selected: root.nav-favorite-tracks;
+                        clicked => {
+                            root.navigate("favorite-tracks");
+                        }
+                    }
+                    if root.nav-playlists: NavItem {
+                        text: "＋ 新建歌单";
+                        clicked => {
+                            root.show-create-playlist = true;
                         }
                     }
                     NavItem {
                         text: "设置";
-                        selected: root.page == 2;
+                        selected: root.show-settings;
                         clicked => {
-                            root.page = 2;
+                            root.show-settings = true;
                         }
                     }
                 }
@@ -215,32 +331,127 @@ export component AppWindow inherits Window {
 
             Rectangle {
                 horizontal-stretch: 1;
-                if root.page == 0: AlbumGrid {
-                    rows: root.album-rows;
-                    loaded: root.album-loaded;
-                    total: root.album-total;
+                if !root.show-settings: ViewPane {
+                    grid: root.grid;
+                    rows: root.rows;
+                    lines: root.lines;
+                    title: root.view-title;
+                    subtitle: root.view-subtitle;
+                    details: root.view-details;
+                    cover: root.view-cover;
+                    has-cover: root.has-view-cover;
+                    loaded: root.view-loaded;
+                    total: root.view-total;
+                    toolbar: root.toolbar;
+                    can-play: root.can-play;
+                    shuffle-all-visible: root.shuffle-all-visible;
+                    load-failed: root.load-failed;
+                    editable: root.editable;
                     layout-changed(n, size) => {
-                        root.album-layout-changed(n, size);
+                        root.layout-changed(n, size);
                     }
-                    play-album(id) => {
-                        root.play-album(id);
+                    row-clicked(i) => {
+                        root.row-clicked(i);
                     }
-                    enqueue-album(id, next) => {
-                        root.enqueue-album(id, next);
+                    row-play(i) => {
+                        root.row-play(i);
+                    }
+                    row-enqueue(i, next) => {
+                        root.row-enqueue(i, next);
+                    }
+                    row-favorite(i, on) => {
+                        root.row-favorite(i, on);
+                    }
+                    row-remove(i) => {
+                        root.row-remove(i);
+                    }
+                    row-add-to-playlist(i, playlist) => {
+                        root.row-add-to-playlist(i, playlist);
+                    }
+                    row-moved(from, to) => {
+                        root.row-moved(from, to);
+                    }
+                    row-similar(i) => {
+                        root.show-similar(i);
+                    }
+                    playlist-names: root.playlist-names;
+                    play-all => {
+                        root.play-all();
+                    }
+                    shuffle-all => {
+                        root.shuffle-all();
+                    }
+                    enqueue-all(next) => {
+                        root.enqueue-all(next);
+                    }
+                    sort-picked(i) => {
+                        root.sort-picked(i);
+                    }
+                    direction-toggled => {
+                        root.direction-toggled();
+                    }
+                    search-submitted(text) => {
+                        root.search-submitted(text);
+                    }
+                    year-range(from, to) => {
+                        root.year-range(from, to);
+                    }
+                    favorite-toggled(on) => {
+                        root.favorite-toggled(on);
+                    }
+                    load-more => {
+                        root.load-more();
                     }
                 }
-                if root.page == 1: TrackList {
-                    tracks: root.tracks;
-                    total: root.track-total;
-                    playing-id: root.playing-id;
-                    play-track(i) => {
-                        root.play-track(i);
-                    }
-                    enqueue-track(i, next) => {
-                        root.enqueue-track(i, next);
+                // Playlist editor actions.
+                if root.editable && root.editing-playlist > 0: Rectangle {
+                    y: parent.height - 56px;
+                    height: 56px;
+                    background: Theme.surface;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    HorizontalLayout {
+                        padding-left: 32px;
+                        padding-right: 32px;
+                        spacing: 16px;
+                        alignment: start;
+                        Text {
+                            text: "歌单";
+                            color: Theme.text-dim;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                        NavItem {
+                            width: 88px;
+                            text: "改名";
+                            clicked => {
+                                root.show-rename-playlist = true;
+                            }
+                        }
+                        NavItem {
+                            width: 88px;
+                            text: "换封面";
+                            clicked => {
+                                root.upload-artwork(root.editing-playlist);
+                            }
+                        }
+                        NavItem {
+                            width: 112px;
+                            text: "删除封面";
+                            clicked => {
+                                root.delete-artwork(root.editing-playlist);
+                            }
+                        }
+                        NavItem {
+                            width: 88px;
+                            text: "删除歌单";
+                            clicked => {
+                                root.delete-playlist(root.editing-playlist);
+                            }
+                        }
                     }
                 }
-                if root.page == 2: SettingsView {
+                if root.show-settings: SettingsView {
                     devices: root.audio-devices;
                     device-index <=> root.audio-device-index;
                     exclusive <=> root.exclusive;
@@ -347,6 +558,163 @@ export component AppWindow inherits Window {
                 } else {
                     root.show-lyrics = !root.show-lyrics;
                     root.show-lyrics-changed(root.show-lyrics);
+                }
+            }
+        }
+    }
+
+    // Playlist list: a "new playlist" button in the sidebar area.
+    // (Rendered inside the logged-in layout above.)
+
+    // New playlist / rename dialogs.
+    if root.show-create-playlist: Rectangle {
+        x: 0;
+        y: 0;
+        width: 100%;
+        height: 100%;
+        background: #00000066;
+        dialog-area := TouchArea {
+            clicked => {
+                root.show-create-playlist = false;
+            }
+        }
+        Rectangle {
+            width: 360px;
+            height: create-form.preferred-height + 48px;
+            background: Theme.raised;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.border;
+            create-form := VerticalLayout {
+                padding: 24px;
+                spacing: 12px;
+                Text {
+                    text: "新建歌单";
+                    color: Theme.text;
+                    font-size: 16px;
+                    font-weight: 700;
+                }
+                Rectangle {
+                    height: 36px;
+                    border-radius: Theme.radius;
+                    background: Theme.bg;
+                    border-width: 1px;
+                    border-color: name-input.has-focus ? Theme.accent : Theme.border;
+                    name-input := TextInput {
+                        x: 10px;
+                        width: parent.width - 20px;
+                        height: 100%;
+                        vertical-alignment: center;
+                        text <=> root.new-playlist-name;
+                        color: Theme.text;
+                        single-line: true;
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    NavItem {
+                        width: 64px;
+                        text: "取消";
+                        clicked => {
+                            root.show-create-playlist = false;
+                        }
+                    }
+                    Rectangle {
+                        width: 88px;
+                        height: 32px;
+                        border-radius: Theme.radius;
+                        background: Theme.accent;
+                        Text {
+                            text: "创建";
+                            color: #ffffff;
+                            font-size: 12px;
+                            font-weight: 600;
+                        }
+                        ok-area := TouchArea {
+                            clicked => {
+                                root.show-create-playlist = false;
+                                root.create-playlist(root.new-playlist-name);
+                                root.new-playlist-name = "";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if root.show-rename-playlist: Rectangle {
+        x: 0;
+        y: 0;
+        width: 100%;
+        height: 100%;
+        background: #00000066;
+        TouchArea {
+            clicked => {
+                root.show-rename-playlist = false;
+            }
+        }
+        Rectangle {
+            width: 360px;
+            height: rename-form.preferred-height + 48px;
+            background: Theme.raised;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.border;
+            rename-form := VerticalLayout {
+                padding: 24px;
+                spacing: 12px;
+                Text {
+                    text: "歌单改名";
+                    color: Theme.text;
+                    font-size: 16px;
+                    font-weight: 700;
+                }
+                Rectangle {
+                    height: 36px;
+                    border-radius: Theme.radius;
+                    background: Theme.bg;
+                    border-width: 1px;
+                    border-color: rename-input.has-focus ? Theme.accent : Theme.border;
+                    rename-input := TextInput {
+                        x: 10px;
+                        width: parent.width - 20px;
+                        height: 100%;
+                        vertical-alignment: center;
+                        text <=> root.rename-playlist-name;
+                        color: Theme.text;
+                        single-line: true;
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    NavItem {
+                        width: 64px;
+                        text: "取消";
+                        clicked => {
+                            root.show-rename-playlist = false;
+                        }
+                    }
+                    Rectangle {
+                        width: 88px;
+                        height: 32px;
+                        border-radius: Theme.radius;
+                        background: Theme.accent;
+                        Text {
+                            text: "保存";
+                            color: #ffffff;
+                            font-size: 12px;
+                            font-weight: 600;
+                        }
+                        TouchArea {
+                            clicked => {
+                                root.show-rename-playlist = false;
+                                root.rename-playlist(root.editing-playlist, root.rename-playlist-name);
+                            }
+                        }
+                    }
                 }
             }
         }

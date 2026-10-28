@@ -62,7 +62,31 @@ fn model(values: Vec<Value>) -> Value {
     Value::Model(ModelRc::new(VecModel::from(values)))
 }
 
-fn album_rows(columns: usize) -> Value {
+fn row(
+    id: f64,
+    index: f64,
+    title: &str,
+    subtitle: &str,
+    meta: &str,
+    artwork: &str,
+    playable: bool,
+    cover: Image,
+) -> Struct {
+    let mut row = Struct::default();
+    row.set_field("kind".into(), Value::Number(if playable { 1.0 } else { 0.0 }));
+    row.set_field("id".into(), Value::Number(id));
+    row.set_field("index".into(), Value::Number(index));
+    row.set_field("title".into(), s(title));
+    row.set_field("subtitle".into(), s(subtitle));
+    row.set_field("meta".into(), s(meta));
+    row.set_field("artwork".into(), s(artwork));
+    row.set_field("playable".into(), Value::Bool(playable));
+    row.set_field("favorite".into(), Value::Bool(false));
+    row.set_field("cover".into(), Value::Image(cover));
+    row
+}
+
+fn cards(columns: usize) -> Value {
     let titles = [
         ("ハルジオン", "YOASOBI", "2020"),
         ("我的歌声里", "曲婉婷", "2012"),
@@ -80,20 +104,20 @@ fn album_rows(columns: usize) -> Value {
     let cards: Vec<Value> = (0..24)
         .map(|i| {
             let (title, artist, year) = titles[i % titles.len()];
-            let mut card = Struct::default();
-            card.set_field("id".into(), Value::Number(i as f64));
-            card.set_field("title".into(), s(title));
-            card.set_field("artist".into(), s(artist));
-            card.set_field("year".into(), s(year));
-            card.set_field(
-                "cover".into(),
-                Value::Image(if i % 5 == 4 {
+            Value::Struct(row(
+                i as f64,
+                i as f64,
+                title,
+                artist,
+                year,
+                "/api/v1/artwork/x",
+                false,
+                if i % 5 == 4 {
                     Image::default()
                 } else {
                     cover(i as u32)
-                }),
-            );
-            Value::Struct(card)
+                },
+            ))
         })
         .collect();
     model(
@@ -108,38 +132,56 @@ fn album_rows(columns: usize) -> Value {
     )
 }
 
-fn tracks() -> Value {
+fn lines() -> Value {
     let rows = [
-        ("夜に駆ける", "YOASOBI", "THE BOOK", "4:21"),
-        ("晴天", "周杰伦", "叶惠美", "4:29"),
+        ("夜に駆ける", "YOASOBI", "THE BOOK · 4:21"),
+        ("晴天", "周杰伦", "叶惠美 · 4:29"),
         (
             "Get Lucky (feat. Pharrell Williams & Nile Rodgers)",
             "Daft Punk",
-            "Random Access Memories",
-            "6:09",
+            "Random Access Memories · 6:09",
         ),
-        (
-            "だんご大家族",
-            "茶太",
-            "CLANNAD ORIGINAL SOUNDTRACK",
-            "3:38",
-        ),
+        ("だんご大家族", "茶太", "CLANNAD ORIGINAL SOUNDTRACK · 3:38"),
     ];
     model(
         (0..40)
             .map(|i| {
-                let (t, a, al, d) = rows[i % rows.len()];
-                let mut row = Struct::default();
-                row.set_field("id".into(), Value::Number(i as f64 + 100.0));
-                row.set_field("index".into(), Value::Number(i as f64));
-                row.set_field("title".into(), s(t));
-                row.set_field("artist".into(), s(a));
-                row.set_field("album".into(), s(al));
-                row.set_field("duration".into(), s(d));
-                Value::Struct(row)
+                let (t, a, m) = rows[i % rows.len()];
+                Value::Struct(row(
+                    100.0 + i as f64,
+                    i as f64,
+                    t,
+                    a,
+                    m,
+                    "",
+                    true,
+                    cover(i as u32),
+                ))
             })
             .collect(),
     )
+}
+
+fn toolbar_with(filterable: bool) -> Value {
+    let mut t = Struct::default();
+    // Detail pages have no sort menu.
+    let sorts: Vec<Value> = if filterable {
+        ["最近添加", "名称", "最近播放", "发行日期", "发行年份", "随机"]
+            .into_iter()
+            .map(s)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    t.set_field("sorts".into(), model(sorts));
+    t.set_field("sort-index".into(), Value::Number(0.0));
+    t.set_field("desc".into(), Value::Bool(true));
+    t.set_field("search".into(), s(""));
+    t.set_field("year-from".into(), Value::Number(0.0));
+    t.set_field("year-to".into(), Value::Number(0.0));
+    t.set_field("favorite".into(), Value::Number(0.0));
+    t.set_field("filterable".into(), Value::Bool(filterable));
+    Value::Struct(t)
 }
 
 fn queue() -> Value {
@@ -249,12 +291,13 @@ fn main() {
     inst.show().unwrap();
     set(&inst, "logged-in", Value::Bool(true));
     set(&inst, "server-label", s("https://music.example.com"));
+    set(&inst, "view-title", s("专辑"));
+    set(&inst, "view-loaded", Value::Number(500.0));
+    set(&inst, "view-total", Value::Number(1234.0));
+    set(&inst, "toolbar", toolbar_with(true));
+    set(&inst, "grid", Value::Bool(true));
     // Columns for 1280 - 200 sidebar - 320 lyrics = 760px.
-    set(&inst, "album-rows", album_rows(3));
-    set(&inst, "album-loaded", Value::Number(500.0));
-    set(&inst, "album-total", Value::Number(1234.0));
-    set(&inst, "tracks", tracks());
-    set(&inst, "track-total", Value::Number(10000.0));
+    set(&inst, "rows", cards(3));
     set(&inst, "has-track", Value::Bool(true));
     set(&inst, "playing-id", Value::Number(101.0));
     set(&inst, "np-title", s("夜に駆ける"));
@@ -273,11 +316,50 @@ fn main() {
     set(&inst, "lyrics-source", s("LRCLIB"));
     render(&window, size, &format!("{out}/albums.png"));
 
-    set(&inst, "page", Value::Number(1.0));
+    set(&inst, "grid", Value::Bool(false));
+    set(&inst, "shuffle-all-visible", Value::Bool(true));
+    set(&inst, "lines", lines());
+    set(&inst, "view-title", s("曲目"));
+    set(&inst, "view-loaded", Value::Number(10000.0));
+    set(&inst, "view-total", Value::Number(10000.0));
     set(&inst, "notice", s("播放失败：loading failed"));
     render(&window, size, &format!("{out}/tracks.png"));
 
+    // Album detail with a header cover.
     set(&inst, "notice", s(""));
+    set(&inst, "shuffle-all-visible", Value::Bool(false));
+    set(&inst, "view-title", s("君の名は。"));
+    set(&inst, "view-subtitle", s("RADWIMPS"));
+    set(
+        &inst,
+        "view-details",
+        s("2016 · soundtrack · FLAC / 24bit / 48kHz · EMI Records"),
+    );
+    set(&inst, "has-view-cover", Value::Bool(true));
+    set(&inst, "view-cover", Value::Image(cover(3)));
+    set(&inst, "view-loaded", Value::Number(28.0));
+    set(&inst, "view-total", Value::Number(28.0));
+    set(&inst, "can-play", Value::Bool(true));
+    set(&inst, "toolbar", toolbar_with(false));
+    render(&window, size, &format!("{out}/album.png"));
+
+    // Playlist detail with the editor bar.
+    set(&inst, "view-title", s("夜晚歌单"));
+    set(&inst, "view-subtitle", s(""));
+    set(&inst, "view-details", s("收藏的慢歌 · 42 首 · 3:12:44"));
+    set(&inst, "editable", Value::Bool(true));
+    set(&inst, "editing-playlist", Value::Number(5.0));
+    set(
+        &inst,
+        "playlist-names",
+        model(["夜晚歌单", "通勤", "练琴"].into_iter().map(s).collect()),
+    );
+    render(&window, size, &format!("{out}/playlist.png"));
+    set(&inst, "editable", Value::Bool(false));
+    set(&inst, "editing-playlist", Value::Number(0.0));
+    set(&inst, "has-view-cover", Value::Bool(false));
+    set(&inst, "can-play", Value::Bool(false));
+
     set(&inst, "queue", queue());
     set(&inst, "queue-current", Value::Number(1.0));
     set(&inst, "show-queue", Value::Bool(true));
@@ -288,7 +370,14 @@ fn main() {
     render(&window, size, &format!("{out}/queue.png"));
     set(&inst, "show-queue", Value::Bool(false));
 
-    set(&inst, "page", Value::Number(2.0));
+    // Search view.
+    set(&inst, "view-title", s("搜索"));
+    set(&inst, "view-subtitle", s("“夜”"));
+    set(&inst, "view-details", s(""));
+    set(&inst, "search-text", s("夜"));
+    render(&window, size, &format!("{out}/search.png"));
+
+    set(&inst, "show-settings", Value::Bool(true));
     set(&inst, "notice", s(""));
     let devices: Vec<Value> = [
         "系统默认",
@@ -308,4 +397,10 @@ fn main() {
     set(&inst, "exclusive", Value::Bool(true));
     set(&inst, "tray-available", Value::Bool(true));
     render(&window, size, &format!("{out}/settings.png"));
+
+    // New playlist dialog.
+    set(&inst, "show-settings", Value::Bool(false));
+    set(&inst, "show-create-playlist", Value::Bool(true));
+    set(&inst, "new-playlist-name", s("新歌单"));
+    render(&window, size, &format!("{out}/create-playlist.png"));
 }

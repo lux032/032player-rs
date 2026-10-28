@@ -2,25 +2,41 @@ import { ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Field, PrimaryButton, ValueBar, IconButton, IconKind, Icon } from "controls.slint";
 
-export struct AlbumCard {
-    id: int,
-    title: string,
-    artist: string,
-    year: string,
-    cover: image,
-}
-
-export struct AlbumRow {
-    items: [AlbumCard],
-}
-
-export struct TrackRow {
+// One row of the main pane: a card (grid layout) or a text row (list
+// layout). `meta` holds the year, the counts or "album · duration".
+export struct ViewRow {
+    // 0 album, 1 track, 2 artist, 3 playlist: what a click opens.
+    kind: int,
     id: int,
     index: int,
     title: string,
-    artist: string,
-    album: string,
-    duration: string,
+    subtitle: string,
+    meta: string,
+    artwork: string,
+    favorite: bool,
+    // Track rows start playing from their index in the view's track list.
+    playable: bool,
+    cover: image,
+}
+
+export struct ViewRowChunk {
+    items: [ViewRow],
+}
+
+export struct Toolbar {
+    // Sort labels, in menu order; the selected one is an index.
+    sorts: [string],
+    sort-index: int,
+    // true: descending (the arrow points down).
+    desc: bool,
+    search: string,
+    // 0..9999: a year filter is set when from > 0.
+    year-from: int,
+    year-to: int,
+    // 1 when only favorites are listed.
+    favorite: int,
+    // The favorite switch and the year range apply to text lists only.
+    filterable: bool,
 }
 
 export struct LyricLine {
@@ -117,12 +133,19 @@ export component LoginView inherits Rectangle {
     }
 }
 
-component AlbumCardView inherits Rectangle {
-    in property <AlbumCard> card;
+component RowCard inherits Rectangle {
+    in property <ViewRow> data;
     in property <length> size: 168px;
+    // The playlists of the "add to playlist" menu.
+    in property <[string]> playlist-names;
+    // Click (or a card without a detail page) starts playing.
     callback clicked();
-    // true: play next, false: add to the end of the queue.
+    // The context menu's "播放": plays the album, does not open it.
+    callback play();
     callback enqueue(bool);
+    callback favorite(bool);
+    // Playlist id, from the matching index of `playlist-names`.
+    callback add-to-playlist(int);
     width: root.size;
     height: root.size + 62px;
 
@@ -138,7 +161,7 @@ component AlbumCardView inherits Rectangle {
             clip: true;
 
             Image {
-                source: root.card.cover;
+                source: root.data.cover;
                 width: 100%;
                 height: 100%;
                 image-fit: ImageFit.cover;
@@ -163,10 +186,19 @@ component AlbumCardView inherits Rectangle {
                     color: #ffffff;
                 }
             }
+
+            if root.data.favorite: Rectangle {
+                x: parent.width - 26px;
+                y: 10px;
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background: Theme.danger;
+            }
         }
 
         Text {
-            text: root.card.title;
+            text: root.data.title;
             color: Theme.text;
             font-weight: 600;
             overflow: elide;
@@ -174,7 +206,7 @@ component AlbumCardView inherits Rectangle {
         }
 
         Text {
-            text: root.card.year == "" ? root.card.artist : root.card.artist + " · " + root.card.year;
+            text: root.data.meta == "" ? root.data.subtitle : root.data.subtitle + " · " + root.data.meta;
             color: Theme.text-dim;
             font-size: 12px;
             overflow: elide;
@@ -187,7 +219,7 @@ component AlbumCardView inherits Rectangle {
             MenuItem {
                 title: "播放";
                 activated => {
-                    root.clicked();
+                    root.play();
                 }
             }
             MenuItem {
@@ -202,6 +234,21 @@ component AlbumCardView inherits Rectangle {
                     root.enqueue(false);
                 }
             }
+            MenuItem {
+                title: root.data.favorite ? "取消收藏" : "收藏";
+                activated => {
+                    root.favorite(!root.data.favorite);
+                }
+            }
+            if root.playlist-names.length > 0: Menu {
+                title: "添加到歌单";
+                for name[i] in root.playlist-names: MenuItem {
+                    title: name;
+                    activated => {
+                        root.add-to-playlist(i);
+                    }
+                }
+            }
         }
 
         area := TouchArea {
@@ -213,16 +260,467 @@ component AlbumCardView inherits Rectangle {
     }
 }
 
-export component AlbumGrid inherits Rectangle {
-    in property <[AlbumRow]> rows;
+// A text row: artwork thumbnail when the row has one, then title /
+// subtitle / meta.
+component RowLine inherits Rectangle {
+    in property <ViewRow> data;
+    // The rows can be removed and reordered (playlist editor).
+    in property <bool> editable;
+    in property <[string]> playlist-names;
+    callback clicked();
+    callback play();
+    callback enqueue(bool);
+    callback favorite(bool);
+    callback remove();
+    callback add-to-playlist(int);
+    // Playlist editing: move the row one place, or drag it.
+    callback move-by(int);
+    callback moved-to(int);
+    // Show the similar tracks of this row.
+    callback similar();
+    height: 40px;
+    background: row-area.has-hover ? Theme.surface-hover : transparent;
+
+    HorizontalLayout {
+        padding-left: 32px;
+        padding-right: 32px;
+        spacing: 12px;
+
+        Text {
+            text: data.playable ? (data.index + 1) : "";
+            width: 40px;
+            color: Theme.text-faint;
+            vertical-alignment: center;
+        }
+
+        if data.artwork != "" || data.playable: Rectangle {
+            width: 28px;
+            height: 28px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 4px;
+            background: Theme.raised;
+            clip: true;
+            Image {
+                source: data.cover;
+                width: 100%;
+                height: 100%;
+                image-fit: ImageFit.cover;
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 1px;
+            Text {
+                text: data.title;
+                color: Theme.text;
+                overflow: elide;
+            }
+            if data.subtitle != "": Text {
+                text: data.subtitle;
+                color: Theme.text-dim;
+                font-size: 11px;
+                overflow: elide;
+            }
+        }
+
+        Text {
+            text: data.meta;
+            color: Theme.text-dim;
+            font-size: 12px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            overflow: elide;
+            width: editable ? 200px : 260px;
+        }
+
+        if data.favorite: Rectangle {
+            width: 8px;
+            height: 8px;
+            border-radius: 4px;
+            background: Theme.danger;
+            y: (parent.height - self.height) / 2;
+        }
+
+        if row-area.has-hover: Rectangle {
+            width: 28px;
+            remove-icon := Icon {
+                kind: IconKind.close;
+                width: 14px;
+                height: 14px;
+                color: remove-area.has-hover ? Theme.text : Theme.text-faint;
+            }
+            remove-area := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.remove();
+                }
+            }
+        }
+    }
+
+    ContextMenuArea {
+        Menu {
+            MenuItem {
+                title: "播放";
+                activated => {
+                    root.play();
+                }
+            }
+            MenuItem {
+                title: "下一首播放";
+                activated => {
+                    root.enqueue(true);
+                }
+            }
+            MenuItem {
+                title: "添加到队列末尾";
+                activated => {
+                    root.enqueue(false);
+                }
+            }
+            MenuItem {
+                title: data.favorite ? "取消收藏" : "收藏";
+                activated => {
+                    root.favorite(!data.favorite);
+                }
+            }
+            if root.editable: MenuItem {
+                title: "从歌单移除";
+                activated => {
+                    root.remove();
+                }
+            }
+            if root.data.playable: MenuItem {
+                title: "相似歌曲";
+                activated => {
+                    root.similar();
+                }
+            }
+            if root.editable: MenuItem {
+                title: "上移";
+                activated => {
+                    root.move-by(-1);
+                }
+            }
+            if root.editable: MenuItem {
+                title: "下移";
+                activated => {
+                    root.move-by(1);
+                }
+            }
+            if root.playlist-names.length > 0: Menu {
+                title: "添加到歌单";
+                for name[i] in root.playlist-names: MenuItem {
+                    title: name;
+                    activated => {
+                        root.add-to-playlist(i);
+                    }
+                }
+            }
+        }
+
+    }
+
+    // Drag to reorder: the pointer travel in whole rows decides the target.
+    // A plain click stays a double-click for playback.
+    in property <length> row-height: 40px;
+    property <length> drag-from: 0px;
+    property <length> drag-last: 0px;
+    row-area := TouchArea {
+        double-clicked => {
+            root.clicked();
+        }
+        pointer-event(e) => {
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                root.drag-from = self.mouse-y;
+                root.drag-last = self.mouse-y;
+            }
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
+                if root.editable && abs(root.drag-last - root.drag-from) > 8px {
+                    root.moved-to(root.data.index + round((root.drag-last - root.drag-from) / root.row-height));
+                }
+            }
+        }
+        moved => {
+            if self.pressed {
+                root.drag-last = self.mouse-y;
+            }
+        }
+    }
+}
+
+// The toolbar above a list: sort menu with direction, and a search box.
+component ViewToolbar inherits Rectangle {
+    in-out property <Toolbar> toolbar;
+    callback sort-picked(int);
+    callback direction-toggled();
+    callback search-submitted(string);
+    callback year-range(int, int);
+    callback favorite-toggled(bool);
+    // A detail page has nothing to sort or search: keep the row empty.
+    height: root.toolbar.sorts.length == 0 && !root.toolbar.filterable ? 0px : 44px;
+    visible: root.height > 0px;
+
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+
+        if root.toolbar.sorts.length > 0: Rectangle {
+            height: 32px;
+            width: sort-content.preferred-width + 24px;
+            border-radius: Theme.radius;
+            background: sort-area.has-hover ? Theme.surface-hover : Theme.raised;
+
+            sort-content := HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 6px;
+                Text {
+                    text: root.toolbar.sort-index >= 0 && root.toolbar.sort-index < root.toolbar.sorts.length
+                        ? root.toolbar.sorts[root.toolbar.sort-index] : "排序";
+                    color: Theme.text;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: root.toolbar.desc ? "↓" : "↑";
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+            }
+
+            sort-area := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    sort-menu.show();
+                }
+            }
+        }
+
+        if root.toolbar.filterable: Rectangle {
+            height: 32px;
+            width: 72px;
+            border-radius: Theme.radius;
+            background: root.toolbar.favorite != 0 ? Theme.accent-dim : fav-area.has-hover ? Theme.surface-hover : transparent;
+            Text {
+                text: "仅收藏";
+                color: root.toolbar.favorite != 0 ? Theme.accent : Theme.text-dim;
+                font-size: 12px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            fav-area := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.favorite-toggled(root.toolbar.favorite == 0);
+                }
+            }
+        }
+
+        if root.toolbar.filterable: HorizontalLayout {
+            height: 32px;
+            spacing: 0px;
+            Text {
+                text: "年份";
+                color: Theme.text-dim;
+                font-size: 12px;
+                vertical-alignment: center;
+                width: 40px;
+            }
+            Rectangle {
+                width: 56px;
+                height: 32px;
+                border-radius: Theme.radius;
+                background: Theme.raised;
+                border-width: 1px;
+                border-color: year-from.has-focus ? Theme.accent : Theme.border;
+                year-from := TextInput {
+                    x: 4px;
+                    width: parent.width - 8px;
+                    height: 100%;
+                    vertical-alignment: center;
+                    text: root.toolbar.year-from > 0 ? root.toolbar.year-from : "";
+                    color: Theme.text;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    single-line: true;
+                    input-type: InputType.number;
+                    accepted => {
+                        root.year-range(self.text.to-float(), root.toolbar.year-to);
+                    }
+                }
+            }
+            Text {
+                text: "–";
+                color: Theme.text-faint;
+                font-size: 12px;
+                vertical-alignment: center;
+                width: 16px;
+                horizontal-alignment: center;
+            }
+            Rectangle {
+                width: 56px;
+                height: 32px;
+                border-radius: Theme.radius;
+                background: Theme.raised;
+                border-width: 1px;
+                border-color: year-to.has-focus ? Theme.accent : Theme.border;
+                year-to := TextInput {
+                    x: 4px;
+                    width: parent.width - 8px;
+                    height: 100%;
+                    vertical-alignment: center;
+                    text: root.toolbar.year-to > 0 ? root.toolbar.year-to : "";
+                    color: Theme.text;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    single-line: true;
+                    input-type: InputType.number;
+                    accepted => {
+                        root.year-range(root.toolbar.year-from, self.text.to-float());
+                    }
+                }
+            }
+        }
+
+        if root.toolbar.sorts.length > 0: Rectangle {
+            height: 32px;
+            width: 52px;
+            border-radius: Theme.radius;
+            background: dir-area.has-hover ? Theme.surface-hover : transparent;
+            Text {
+                text: "反向";
+                color: Theme.text-dim;
+                font-size: 12px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            dir-area := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.direction-toggled();
+                }
+            }
+        }
+
+        if root.toolbar.filterable: Rectangle {
+            height: 32px;
+            width: 240px;
+            border-radius: Theme.radius;
+            background: Theme.raised;
+            border-width: 1px;
+            border-color: search-input.has-focus ? Theme.accent : Theme.border;
+
+            search-input := TextInput {
+                x: 10px;
+                width: parent.width - 20px;
+                height: 100%;
+                vertical-alignment: center;
+                text <=> root.toolbar.search;
+                color: Theme.text;
+                single-line: true;
+                input-type: InputType.text;
+                accepted => {
+                    root.search-submitted(self.text);
+                }
+            }
+            if root.toolbar.search == "": Text {
+                x: 10px;
+                text: "按回车搜索曲库";
+                color: Theme.text-faint;
+                font-size: 12px;
+                vertical-alignment: center;
+                height: 100%;
+            }
+        }
+    }
+
+    sort-menu := PopupWindow {
+        x: 0;
+        y: root.height + 4px;
+        width: 180px;
+        Rectangle {
+            background: Theme.raised;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.border;
+            VerticalLayout {
+                padding: 6px;
+                for name[i] in root.toolbar.sorts: Rectangle {
+                    height: 30px;
+                    border-radius: 4px;
+                    background: item-area.has-hover ? Theme.surface-hover : transparent;
+                    Text {
+                        x: 10px;
+                        text: name;
+                        color: i == root.toolbar.sort-index ? Theme.accent : Theme.text;
+                        vertical-alignment: center;
+                        height: 100%;
+                    }
+                    item-area := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            sort-menu.close();
+                            root.sort-picked(i);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component ViewPane inherits Rectangle {
+    // Grid rows (albums) or text rows (tracks, artists, playlists).
+    in property <bool> grid;
+    in property <[ViewRowChunk]> rows;
+    in property <[ViewRow]> lines;
+    in property <string> title;
+    in property <string> subtitle;
+    // Joined with " · " by the app.
+    in property <string> details;
+    in property <image> cover;
+    in property <bool> has-cover;
     in property <int> loaded;
     in property <int> total;
-    // Columns and the card size (logical) whenever the layout changes.
+    in property <Toolbar> toolbar;
+    // The rows can be played as a whole.
+    in property <bool> can-play;
+    // The playlist editor is open: rows can be removed.
+    in property <bool> editable;
+    // Show the whole-library random play button.
+    in property <bool> shuffle-all-visible;
+    // The first page failed: everything else is a retry button.
+    in property <bool> load-failed;
+
     callback layout-changed(int, length);
-    callback play-album(int);
-    callback enqueue-album(int, bool);
-    // Cards at least 160px with 24px gaps and 32px side padding; the
-    // columns then share the width.
+    // Clicking a row: opens albums / artists / playlists, plays tracks.
+    callback row-clicked(int);
+    // The row's "播放": always plays (an album plays whole).
+    callback row-play(int);
+    callback row-enqueue(int, bool);
+    callback row-favorite(int, bool);
+    callback row-remove(int);
+    callback row-add-to-playlist(int, int);
+    // Playlist editing: move row `from` to row `to`.
+    callback row-moved(int, int);
+    callback row-similar(int);
+    in property <[string]> playlist-names;
+    callback play-all();
+    callback enqueue-all(bool);
+    // Whole-library random play.
+    callback shuffle-all();
+    callback sort-picked(int);
+    callback direction-toggled();
+    callback search-submitted(string);
+    callback year-range(int, int);
+    callback favorite-toggled(bool);
+    // Scrolled near the end: ask for the next page.
+    callback load-more();
+
     out property <int> columns: max(1, floor((self.width - 64px + 24px) / 184px));
     out property <length> card-size: (self.width - 64px - (root.columns - 1) * 24px) / root.columns;
     changed card-size => {
@@ -233,169 +731,212 @@ export component AlbumGrid inherits Rectangle {
     }
 
     VerticalLayout {
+        // Header.
         HorizontalLayout {
             padding-left: 32px;
             padding-right: 32px;
-            padding-top: 24px;
-            padding-bottom: 12px;
-            Text {
-                text: "专辑";
-                color: Theme.text;
-                font-size: 24px;
-                font-weight: 700;
+            padding-top: 20px;
+            padding-bottom: 8px;
+            spacing: 12px;
+            alignment: start;
+
+            if root.has-cover: Rectangle {
+                width: 112px;
+                height: 112px;
+                border-radius: Theme.radius;
+                background: Theme.raised;
+                clip: true;
+                Image {
+                    source: root.cover;
+                    width: 100%;
+                    height: 100%;
+                    image-fit: ImageFit.cover;
+                }
             }
-            Text {
-                text: root.total == 0 ? "" : root.loaded < root.total ? root.loaded + " / " + root.total : root.total + " 张";
-                color: Theme.text-dim;
-                horizontal-alignment: right;
-                vertical-alignment: center;
+
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                spacing: 4px;
+                Text {
+                    text: root.title;
+                    color: Theme.text;
+                    font-size: 24px;
+                    font-weight: 700;
+                    overflow: elide;
+                }
+                if root.subtitle != "": Text {
+                    text: root.subtitle;
+                    color: Theme.text-dim;
+                    font-size: 13px;
+                    overflow: elide;
+                }
+                if root.details != "": Text {
+                    text: root.details;
+                    color: Theme.text-faint;
+                    font-size: 12px;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.total == 0 ? "" : root.loaded < root.total ? root.loaded + " / " + root.total : root.total + (root.grid ? " 张" : " 首");
+                    color: Theme.text-faint;
+                    font-size: 12px;
+                }
+            }
+
+            if root.can-play: Rectangle {
+                height: 36px;
+                width: 92px;
+                y: (parent.height - self.height) / 2;
+                border-radius: 18px;
+                background: play-area.pressed ? Theme.accent.darker(20%) : play-area.has-hover ? Theme.accent.brighter(10%) : Theme.accent;
+                Text {
+                    text: "播放全部";
+                    color: #ffffff;
+                    font-weight: 600;
+                    font-size: 12px;
+                }
+                play-area := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.play-all();
+                    }
+                }
+            }
+
+            if root.shuffle-all-visible: Rectangle {
+                height: 36px;
+                width: 96px;
+                y: (parent.height - self.height) / 2;
+                border-radius: 18px;
+                background: shuffle-area.has-hover ? Theme.surface-hover : Theme.raised;
+                Text {
+                    text: "随机全部";
+                    color: Theme.text;
+                    font-weight: 600;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                shuffle-area := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.shuffle-all();
+                    }
+                }
             }
         }
 
-        ListView {
+        ViewToolbar {
+            x: 32px;
+            width: parent.width - 64px;
+            toolbar: root.toolbar;
+            sort-picked(i) => {
+                root.sort-picked(i);
+            }
+            direction-toggled => {
+                root.direction-toggled();
+            }
+            search-submitted(text) => {
+                root.search-submitted(text);
+            }
+            year-range(from, to) => {
+                root.year-range(from, to);
+            }
+            favorite-toggled(on) => {
+                root.favorite-toggled(on);
+            }
+        }
+
+        if root.load-failed: Rectangle {
+            height: 120px;
+            Text {
+                text: "加载失败：点此重试";
+                color: Theme.text-dim;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                retry-area := TouchArea {
+                    clicked => {
+                        root.load-more();
+                    }
+                }
+            }
+        }
+
+        // Grid of cards.
+        if root.grid && !root.load-failed: list := ListView {
             for row in root.rows: HorizontalLayout {
                 padding-left: 32px;
                 padding-right: 32px;
                 spacing: 24px;
                 alignment: start;
                 height: root.card-size + 86px;
-                for card in row.items: AlbumCardView {
-                    card: card;
+                for card in row.items: RowCard {
+                    data: card;
                     size: root.card-size;
+                    playlist-names: root.playlist-names;
                     clicked => {
-                        root.play-album(card.id);
+                        root.row-clicked(card.index);
+                    }
+                    play => {
+                        root.row-play(card.index);
                     }
                     enqueue(next) => {
-                        root.enqueue-album(card.id, next);
+                        root.row-enqueue(card.index, next);
+                    }
+                    favorite(on) => {
+                        root.row-favorite(card.index, on);
+                    }
+                    add-to-playlist(i) => {
+                        root.row-add-to-playlist(card.index, i);
                     }
                 }
             }
-        }
-    }
-}
-
-export component TrackList inherits Rectangle {
-    in property <[TrackRow]> tracks;
-    in property <int> total;
-    in property <int> playing-id: -1;
-    callback play-track(int);
-    callback enqueue-track(int, bool);
-    // 32px side padding, # 48px, duration 56px, 4 gaps of 16px.
-    property <length> flex: max(0px, self.width - 64px - 48px - 56px - 64px);
-    property <length> title-w: root.flex * 0.42;
-    property <length> artist-w: root.flex * 0.24;
-    property <length> album-w: root.flex * 0.34;
-
-    VerticalLayout {
-        HorizontalLayout {
-            padding-left: 32px;
-            padding-right: 32px;
-            padding-top: 24px;
-            padding-bottom: 12px;
-            Text {
-                text: "曲目";
-                color: Theme.text;
-                font-size: 24px;
-                font-weight: 700;
-            }
-            Text {
-                text: root.total == 0 ? "" : root.tracks.length < root.total ? root.tracks.length + " / " + root.total : root.total + " 首";
-                color: Theme.text-dim;
-                horizontal-alignment: right;
-                vertical-alignment: center;
-            }
-        }
-
-        // Column header.
-        HorizontalLayout {
-            padding-left: 32px;
-            padding-right: 32px;
-            height: 28px;
-            spacing: 16px;
-            Text { text: "#"; width: 48px; color: Theme.text-faint; font-size: 12px; vertical-alignment: center; }
-            Text { text: "标题"; width: root.title-w; color: Theme.text-faint; font-size: 12px; vertical-alignment: center; }
-            Text { text: "艺人"; width: root.artist-w; color: Theme.text-faint; font-size: 12px; vertical-alignment: center; }
-            Text { text: "专辑"; width: root.album-w; color: Theme.text-faint; font-size: 12px; vertical-alignment: center; }
-            Text { text: "时长"; width: 56px; color: Theme.text-faint; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
-        }
-
-        Rectangle {
-            height: 1px;
-            background: Theme.border;
-        }
-
-        ListView {
-            for track in root.tracks: Rectangle {
-                height: 36px;
-                background: row-area.has-hover ? Theme.surface-hover : transparent;
-
-                HorizontalLayout {
-                    padding-left: 32px;
-                    padding-right: 32px;
-                    spacing: 16px;
-                    Text {
-                        text: track.index + 1;
-                        width: 48px;
-                        color: (track.id == root.playing-id) ? Theme.accent : Theme.text-faint;
-                        vertical-alignment: center;
-                    }
-                    Text {
-                        text: track.title;
-                        width: root.title-w;
-                        color: (track.id == root.playing-id) ? Theme.accent : Theme.text;
-                        overflow: elide;
-                        vertical-alignment: center;
-                    }
-                    Text {
-                        text: track.artist;
-                        width: root.artist-w;
-                        color: Theme.text-dim;
-                        overflow: elide;
-                        vertical-alignment: center;
-                    }
-                    Text {
-                        text: track.album;
-                        width: root.album-w;
-                        color: Theme.text-dim;
-                        overflow: elide;
-                        vertical-alignment: center;
-                    }
-                    Text {
-                        text: track.duration;
-                        width: 56px;
-                        color: Theme.text-dim;
-                        horizontal-alignment: right;
-                        vertical-alignment: center;
-                    }
+            // Scrolling near the end asks for more rows.
+            scrolled => {
+                if list.content-y + list.height > list.content-height - 800px {
+                    root.load-more();
                 }
+            }
+        }
 
-                ContextMenuArea {
-                    Menu {
-                        MenuItem {
-                            title: "播放";
-                            activated => {
-                                root.play-track(track.index);
-                            }
-                        }
-                        MenuItem {
-                            title: "下一首播放";
-                            activated => {
-                                root.enqueue-track(track.index, true);
-                            }
-                        }
-                        MenuItem {
-                            title: "添加到队列末尾";
-                            activated => {
-                                root.enqueue-track(track.index, false);
-                            }
-                        }
-                    }
-
-                    row-area := TouchArea {
-                        double-clicked => {
-                            root.play-track(track.index);
-                        }
-                    }
+        // Text rows.
+        if !root.grid && !root.load-failed: lines := ListView {
+            for row in root.lines: RowLine {
+                data: row;
+                editable: root.editable;
+                playlist-names: root.playlist-names;
+                clicked => {
+                    root.row-clicked(row.index);
+                }
+                play => {
+                    root.row-play(row.index);
+                }
+                enqueue(next) => {
+                    root.row-enqueue(row.index, next);
+                }
+                favorite(on) => {
+                    root.row-favorite(row.index, on);
+                }
+                remove => {
+                    root.row-remove(row.index);
+                }
+                add-to-playlist(i) => {
+                    root.row-add-to-playlist(row.index, i);
+                }
+                move-by(delta) => {
+                    root.row-moved(row.index, row.index + delta);
+                }
+                moved-to(target) => {
+                    root.row-moved(row.index, target);
+                }
+                similar => {
+                    root.row-similar(row.index);
+                }
+            }
+            scrolled => {
+                if lines.content-y + lines.height > lines.content-height - 800px {
+                    root.load-more();
                 }
             }
         }

@@ -4,8 +4,9 @@
 //! timing, errors) can be collected; packaged builds hide it in M4 with
 //! `windows_subsystem = "windows"`.
 
-mod albums;
+mod artwork;
 mod engine;
+mod rows;
 mod system;
 mod ui;
 

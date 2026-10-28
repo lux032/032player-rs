@@ -19,6 +19,8 @@ slint = { workspace = true, features = ["raw-window-handle-06"] }
 raw-window-handle.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+# Playlist artwork picker (Windows / Linux portal, no GTK).
+rfd.workspace = true
 
 [build-dependencies]
 slint-build.workspace = true
