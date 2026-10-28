@@ -7,9 +7,13 @@
 
 - **M1 代码全部完成**（登录态、设置、队列与无缝播放、上报补全与重启恢复、系统集成、睡眠定时），CI 的 Linux / Windows job 均通过。
   等用户按下方"M1 验证清单"在 Windows 上一次性验证。
+- **M2 代码完成**：列表（专辑 / 曲目 / 艺人 / 歌单 / 收藏）改为统一的分页视图（排序、方向、搜索、仅收藏、年份区间、随机 seed），
+  专辑 / 艺人 / 歌单详情，搜索，相似歌曲，收藏，歌单增删改与排序、封面上传。等 M1 一起验证。
 - M0：用户实测播放正常、封面清晰、没有阻断性问题；测量数据（内存、冷启动、滚动）还没收到，可以和 M1 一起测。
 - 测试包：Actions 里手动运行 **Package** 工作流，产物在 Release `preview`（便携 zip：exe + `libmpv-2.dll`，静态 CRT）。
-- M1 有意没做的（记在各小节）：队列拖动排序（M2）、最小化到托盘、Linux 托盘。
+- M1 有意没做的（记在各小节）：最小化到托盘、Linux 托盘。
+- M2 有意没做的：艺人的收藏按钮与"艺人筛选"、歌单整表替换（`PUT .../items`）、队列拖动排序（Slint 无原生拖放，
+  队列面板用右键 + 上下移动）、列表滚动节流之外的骨架屏。
 - 已知缺口（按里程碑排期）：歌词翻译、歌词面板手动滚动 / 点击跳转（M3）。
 
 ## M1 验证清单（Windows，用最新 preview 包）
@@ -30,8 +34,8 @@
 
 ## 下一次对话从这里开始
 
-1. 收用户的 M1 验证结果，修问题；把 M0 测量数据写进 `PLAN.md`，决定 D2（Slint）是否确认。
-2. 之后进入 M2（曲库浏览），或按用户意愿提前 M3 的歌词翻译（接口：`POST /tracks/{id}/lyrics/translation`，能力位 `lyricsTranslation`）。
+1. 收用户的 M1 / M2 验证结果，修问题；把 M0 测量数据写进 `PLAN.md`，决定 D2（Slint）是否确认。
+2. 之后进入 M3（032 专属页面：主页、作品、系列、每日推荐、播放记录、歌词）。
 
 ## M1 - 能日常使用
 
@@ -69,7 +73,7 @@
 - [x] UI：播放条随机 / 循环按钮（单曲循环带"1"角标）、队列按钮；右侧队列面板（双击播放、悬停移除、清空）；
   曲目行和专辑卡片右键菜单（播放 / 下一首播放 / 添加到队列末尾）
 - [x] 测试：`queue.rs` 单元测试 9 条，`crates/core/tests/queue_flow.rs` 端到端（无缝、单曲循环上报、过期预加载、移除、末尾停止、清空）
-- [ ] 拖动排序（M2）
+- [x] 拖动排序：队列面板用右键"上移 / 下移"（Slint 无原生拖放，M2 定案）
 - [ ] 无缝衔接听感（曲间无空隙）、右键菜单、单曲循环 **[Win]**
 
 ### 4. 上报补全与重启恢复
@@ -106,6 +110,82 @@
 - [x] 播放条月亮按钮 + 弹出菜单，开启后旁边显示剩余时间或"本曲" / "本专辑"
 - [x] 测试：`queue_flow.rs` 本曲结束、本专辑结束、定时开启 / 取消
 - [ ] 弹出菜单位置、定时到点暂停 **[Win]**
+
+## M2 - 曲库浏览
+
+### 1. 列表（api / core）
+
+- [x] `api`：`Artist` / `ArtistDetail` / `ArtistRelease` / `Playlist` / `PlaylistDetail` / `SimilarTrack` / `PlaylistItemResult`；
+      `ArtistListQuery` + `ArtistSort`，`SortOrder` 可序列化
+- [x] `api`：`artists`（`/browse/artists` 或 `/artists`）、`artist`、`album`、`playlists`、`playlist`、`similar_tracks`、
+      `favorites`（整表翻页）、`set_favorite`（PUT / DELETE `.../favorite`）
+- [x] `api`：歌单写接口：`create_playlist` / `update_playlist` / `delete_playlist` / `replace_playlist_items` /
+      `append_playlist_items`（曲目）/ `append_playlist_album`（整张）/ `remove_playlist_items` / `reorder_playlist_items` /
+      `upload_playlist_artwork`（multipart）/ `delete_playlist_artwork`
+- [x] `core::library`：统一列表查询（专辑 / 曲目 / 艺人 / 歌单 / 收藏 / 艺人曲目），`Seeds`（每个查询一个随机 seed，
+      回到顶部换新，最多 50 个），只收藏走 `/favorites/*` 并客户端排序筛选，歌单客户端搜索排序
+- [x] `core::library`：`fetch_album_detail`（`trackCount` 超出嵌入曲目时 `/tracks?album=` 补齐、音质取最高）、
+      `fetch_artist_detail`（发行 + 热门歌曲）、`fetch_playlist_detail`、`fetch_similar`、`search`、`random_tracks`
+- [x] 测试：`crates/api/tests/client.rs` 新增 5 条（艺人列表、专辑补齐、歌单写与 revision、409 冲突、收藏与相似）；
+      `crates/core/tests/catalog_flow.rs` 3 条端到端；`library.rs` / `view.rs` 单元测试
+
+### 2. 视图（core）
+
+- [x] `core::view`：一个 `View` 枚举（六个侧栏列表 + 专辑 / 艺人 / 歌单详情 + 搜索 + 相似歌曲），
+      所有视图统一输出 `ViewHeader`（标题、副标题、详情行、封面、已加载 / 总数、工具栏）+ `ViewRow` + `ViewTracks`
+- [x] 排序菜单的候选项按服务端能力位过滤（browse-only 的"随机 / 名称 / 专辑 / 时长"无 browse 时隐藏）
+- [x] 一个视图一个 revision；翻页回来的结果若视图或查询已换就丢弃；失败保留已加载的行并允许再次滚动重试
+- [x] `Event::ViewReset` / `ViewHeader` / `ViewRows` / `ViewTracks` / `Playlists` / `Favorite`
+- [x] `Command`：`Navigate` / `ListQuery` / `LoadMore` / `Search` / `SetFavorite` / `RefreshPlaylists` /
+      `PlayRow` / `PlayView` / `PlayAlbum` / `ShuffleAll`；`TrackSource::{Row, View, Album}`
+
+### 3. 歌单编辑（core）
+
+- [x] `CreatePlaylist` / `RenamePlaylist`（保留描述）/ `DeletePlaylist` / `AddToPlaylist`（曲目或整专）/
+      `RemoveFromPlaylist` / `MovePlaylistItem`（带 `expectedRevision`）/ `UploadPlaylistArtwork` / `DeletePlaylistArtwork`
+- [x] 写完后重新读取当前歌单与歌单列表；打开中的歌单记住 revision 与描述
+- [x] 测试：`catalog_flow.rs` 的列表 / 详情 / 搜索 / 相似 / 收藏 / 歌单写
+
+### 4. 界面（app）
+
+- [x] `ViewPane`：一个组件同时渲染网格（专辑卡片）与文本行（曲目 / 艺人 / 歌单 / 详情），头部封面 + 标题 +
+      副标题 + 详情 + "播放全部"/"随机全部"
+- [x] 工具栏：排序下拉（含方向箭头）、反向、仅收藏、年份区间、搜索框（回车搜索）
+- [x] 侧栏：专辑 / 曲目 / 艺人 / 歌单 / 收藏的专辑 / 收藏的曲目 / 设置；歌单页内"＋ 新建歌单"
+- [x] 行右键菜单：播放 / 下一首播放 / 加到队列末尾 / 收藏 / 添加到歌单 / 相似歌曲；歌单详情额外有移除、上移、下移
+- [x] 歌单详情底部操作条：改名、换封面（文件对话框）、删除封面、删除歌单；新建 / 改名对话框
+- [x] 封面缓存搬到 UI 线程（`artwork.rs`，96 张，按像素尺寸分键，尺寸变化超过阈值才重新解码）
+- [x] `tools/ui-snapshot`：专辑网格、曲目、专辑详情、歌单详情、队列、搜索、设置、新建歌单对话框
+- [x] 行 → 动作的解析放进 core（`ViewRow::open_command` / `play_command` / `enqueue_source`、
+      `RowKind::favorite_kind`）：混合行页面（搜索、艺人）不会播错曲、收藏错对象
+- [x] 封面只在可见行请求：恢复 `Model::row_data` 惰性构建（`app/src/rows.rs`），
+      加上 `core::artwork_keys::KeyCache`（按尺寸分键、在途只请求一次、淘汰后可重取、失败时释放、
+      答案只重绘相关行 + 路径索引表）；卡片 / 行缩略图 / 头部封面三种尺寸都能存
+- [x] 工具栏从 header 恢复当前排序与方向；改排序 / 筛选时沿用的占位 header 保留原有的
+      layout、标题与排序项（不会闪一次空列表，也不会让工具栏消失）；详情页不显示筛选控件
+- [x] 歌单写操作在本页内完成（不再强制跳转），`revision` 就地更新；只有移除 / 排序会占用"写入中"，
+      同一时刻只允许一条，成功或失败都会释放（失败后不会永久拒绝写入）；409 `playlist_conflict`
+      刷新后提示重试；改名在缓存缺失时先读回描述
+- [x] 歌单列表页新建 / 删除后按当前排序重新加载
+- [x] 登出后迟到的 `RandomTracks` / `Playlists` / `FavoriteSet` / `PlaylistChanged` 按 generation 丢弃；
+      登出清空歌单缓存与随机 seed
+- [x] 第一页失败时显示"点此重试"（`Event::LoadFailed`），成功加载后遮罩消失；不再卡在空白页
+- [x] 客户端分页的收藏 / 歌单列表用同一 seed 洗牌，翻页不重不漏；收藏默认排序补 `Added`
+- [ ] Windows 实测：排序 / 方向、仅收藏、年份区间、搜索、详情页、相似歌曲、歌单增删改与封面上传 **[Win]**
+- [ ] 封面在窗口缩放后应重新变清晰且不反复请求（`KeyCache` + 惰性行模型） **[Win]**
+
+### M2 验证清单（Windows，和 M1 一起测）
+
+1. **列表**：侧栏"专辑"网格点卡片进详情；"曲目"双击某行从该行开始播放；"艺人"点行进艺人页。
+   排序下拉切"名称 / 随机"、点"反向"箭头、"仅收藏"、年份区间（如 2000-2010）、工具栏搜索框回车。
+2. **详情页**：专辑页头部有封面、年份 / 流派 / 音质 / 厂牌、曲目数；艺人页有发行与热门歌曲；
+   歌单页有总时长。点"播放全部"从第一首开始。
+3. **右键菜单**：曲目行 / 专辑卡片右键"播放 / 下一首播放 / 加到队列末尾 / 收藏 / 添加到歌单 / 相似歌曲"；
+   相似歌曲打开一个列表页。
+4. **歌单**：侧栏"歌单"页"＋ 新建歌单"输入名字创建；进详情后底部有"改名 / 换封面 / 删除封面 / 删除歌单"；
+   行右键"从歌单移除 / 上移 / 下移"；换封面弹出文件对话框，选一张 JPG/PNG 后详情封面变化。
+5. **随机全部**：曲目页"随机全部"按钮，队列变成 200 首随机（browse 服务端全库均匀）。
+6. **收藏页**：收藏的专辑、收藏的曲目；在任意列表里右键取消收藏，回到收藏页应已消失（重进列表刷新）。
 
 ## M0 - 可行性验证
 

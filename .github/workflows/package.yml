@@ -46,10 +46,15 @@ jobs:
           Copy-Item "$out/032player.exe" $dir
           Copy-Item "$out/libmpv-2.dll" $dir
           @"
-          032player $sha (M0 preview)
+          032player $sha (M1 + M2 preview)
 
-          Run 032player.exe. The console window shows the log; keep it for bug reports.
+          Run 032player.exe. The console window shows the log; keep it with any bug report.
           Optional: set M032_SERVER_URL, M032_API_TOKEN and M032_MEDIA_TOKEN to sign in automatically.
+
+          This build covers M1 (queue, gapless playback, reporting, settings, tray, media keys,
+          sleep timer) and M2 (albums / tracks / artists / playlists / favorites lists with sort,
+          filters and search, album / artist / playlist pages, favorites, playlist editing with
+          artwork upload, similar tracks).
           "@ | Set-Content "$dir/README.txt" -Encoding utf8
           Compress-Archive -Path $dir -DestinationPath "dist/$name.zip"
           "ZIP=dist/$name.zip" >> $env:GITHUB_ENV

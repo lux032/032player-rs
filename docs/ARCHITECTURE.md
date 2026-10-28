@@ -43,6 +43,7 @@
 | i18n | `slint` 内置 `@tr()` + gettext，或 `fluent` | M4 决定 |
 | 日志 | `tracing` + `tracing-subscriber`（滚动文件） | |
 | 更新 | 待定（`self_update` / velopack） | M4 |
+| 文件对话框 | `rfd`（`xdg-portal`，无 GTK 依赖） | M2 歌单封面 |
 
 ## 关键设计
 
@@ -59,7 +60,13 @@
 - 无缝播放：当前文件 `FileLoaded` 后，把队列的"自动下一首"`append` 到 mpv 播放列表（`prefetch-playlist`），
   队列或循环模式变化时先 `clear_upcoming` 再重新 `append`。EOF 时若下一首就是预加载的那首，mpv 已经自己切过去，
   `core` 只更新状态不再 `load`。`FileLoaded` 带回 mpv `path`，与预期不符就重新 `load`（队列恰好在曲目边界被改的竞态）。
-- 列表：登录后后台分页（500 / 页）全量拉取专辑和曲目，逐页追加到模型；ListView 只实例化可见行。
+- 视图：一个 `View` 枚举决定主页显示什么（六个侧栏列表、专辑 / 艺人 / 歌单详情、搜索、相似歌曲）。
+  所有视图都产出同一形状：`ViewHeader`（标题、副标题、详情、封面、已加载 / 总数、工具栏）+ `ViewRow`（行）
+  + `ViewTracks`（行对应的曲目，`PlayRow(index)` 用它做队列）。`core::view` 负责取数和组装，
+  `app` 只有一个 `ViewPane` 组件按"网格 / 文本行"渲染。
+- 列表：登录后展示专辑网格；每个列表按 500 / 页拉取，滚动到接近底部再要下一页（`Command::LoadMore`）。
+  每次换视图或换查询 revision +1，旧请求的页直接丢弃；失败保留已加载的行，再滚动会重试。
+  `sort=random` 的 seed 按查询（不含分页）记忆，回到顶部换新，最多 50 个。
 - 封面：专辑网格是自定义 Model，`row_data` 只对可见行调用，在那里才发封面请求；
   请求尺寸 = 卡片逻辑尺寸 x 缩放比例，向上取最接近的服务端尺寸（256 / 512 / 768 / ...）；
   `core` 缓存压缩字节（LRU 400），在 blocking 线程解码并缩放到显示尺寸，UI 只做 `SharedPixelBuffer` 拷贝；
@@ -85,8 +92,10 @@
 
 ### api
 
-- `Client { base_url, api_token, media_token, http }`，方法按资源分组（albums、tracks、browse、
-  playlists、works、series、home、daily_mixes、lyrics、playback）。
+- `Client { base_url, api_token, media_token, http }`，方法按资源分组（albums、tracks、browse、artists、
+  playlists、favorites、similar、works、series、home、daily_mixes、lyrics、playback）。
+- 歌单写接口对照 `032music-server/docs/api/playlist-operations.md`：append / remove / order 带 `expectedRevision`，
+  409 `playlist_conflict` 说明别人先改了，重新读取再试。
 - 统一错误 `ApiError { status, code, message }`；401 单独可识别，交给 `core` 触发重新登录。
 - 分页上限 500（`limits.maxPageSize`）。
 - 先只移植用到的类型，字段用 `Option` 容忍旧服务端缺字段。
@@ -114,3 +123,9 @@
 
 - 按显示尺寸向服务端请求（`size` 参数，原图不带参数）。
 - 后台下载 + 解码 + 磁盘缓存，UI 只拿 `slint::Image`。列表滚动时取消不可见项的请求。
+- 行模型是惰性的（`app/src/rows.rs`）：Slint 只为即将绘制的行调用 `row_data`，所以"请求封面"只发生在
+  可见行。这一点是硬约束 - 如果改成在 Rust 里预先构建全部行，封面缓存（96 张）比列表短时会形成
+  "淘汰 -> 重绘 -> 重新请求"的循环。
+- 已解码封面放在 `app/src/artwork.rs`（按 `{px}|{path}` 分键，尺寸变化超过 125% / 60% 才整体重解码）；
+  键的在途去重、淘汰顺序放在 `core::artwork_keys::KeyCache`（可无显示器测试），
+  图片到达时只重绘用到该封面的行。
