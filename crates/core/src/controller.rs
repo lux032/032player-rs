@@ -6,28 +6,27 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use api::{
-    AlbumListQuery, AlbumSort, AuthError, Capabilities, Client, Feature, SortOrder, Track,
-    TrackListQuery, TrackSort,
-};
+use api::{AuthError, Capabilities, Client, Feature, Track};
 use session::{AdapterStatus, AdapterTrack};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::engine::{AudioDevice, Engine, EngineEnd, EngineEvent};
 use crate::format;
 use crate::images::{Images, Rgba};
+use crate::library::{self, FavoriteKind, ListQuery, PlaylistItem, Seeds};
 use crate::queue::{Queue, QueueSnapshot, Repeat, Step};
 use crate::reporter::{Reporter, ReporterMsg};
 use crate::secrets::{SecretStore, TokenKind, token_key};
 use crate::settings::Settings;
 use crate::storage::FileStorage;
+use crate::view as views;
+use crate::view::{View, ViewHeader, ViewPage, ViewRow, ViewState};
 use session::KeyValueStorage;
 
 /// "Previous" restarts the track instead after this much playback.
 const RESTART_THRESHOLD_MS: i64 = 10_000;
 /// Position updates to the UI and the reporter are coarsened to this step.
 const POSITION_STEP_MS: i64 = 250;
-const PAGE: u32 = api::MAX_PAGE_SIZE;
 
 /// The timed sleep timer counts down in steps of this many ms of playback.
 const SLEEP_TICK_MS: i64 = 1_000;
@@ -62,7 +61,7 @@ pub struct CoreConfig {
     pub settings: Settings,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Command {
     /// Announce the saved sign-in ([`Event::SavedLogin`]) and sign in with
     /// it when both tokens are saved. Sent once at startup.
@@ -76,10 +75,11 @@ pub enum Command {
     },
     /// Sign out and forget both saved tokens (the server stays prefilled).
     Logout,
-    /// Play the loaded track list from `index`.
-    PlayTracks {
-        index: usize,
-    },
+    /// Play row `index` of the current view ("play from here").
+    PlayRow(usize),
+    /// Play every track of the current view.
+    PlayView,
+    /// Play a whole album (grid card context menu).
     PlayAlbum {
         album_id: i64,
     },
@@ -94,6 +94,9 @@ pub enum Command {
     ClearQueue,
     SetRepeat(Repeat),
     SetShuffle(bool),
+    /// Whole-library random play: the queue becomes a random sample of every
+    /// track, starting at the first one (with shuffle on).
+    ShuffleAll,
     TogglePause,
     /// Stop (keeps the queue; play starts the current entry over).
     Stop,
@@ -120,6 +123,62 @@ pub enum Command {
         path: String,
         px: u32,
     },
+
+    // ------------------------------------------------------------ catalog
+    /// Switches the main pane to `view` and loads it.
+    Navigate(View),
+    /// Replaces the current list's query (sort, order, filters) and reloads.
+    ListQuery {
+        query: ListQuery,
+    },
+    /// Loads more rows (scroll near the end).
+    LoadMore,
+    /// `q` search (`Command::Navigate(View::Search)` shows the results).
+    Search(String),
+    /// `PUT` / `DELETE /{albums|tracks|artists}/{id}/favorite`.
+    SetFavorite {
+        kind: FavoriteKind,
+        id: i64,
+        favorite: bool,
+    },
+    /// The playlists of the "add to playlist" menu.
+    RefreshPlaylists,
+
+    // ------------------------------------------------------------ playlists
+    CreatePlaylist {
+        name: String,
+        description: String,
+    },
+    /// Renames a playlist, keeping its description.
+    RenamePlaylist {
+        id: i64,
+        name: String,
+        description: String,
+    },
+    DeletePlaylist(i64),
+    /// Appends tracks (`Some`) or a whole album (`None`) to a playlist.
+    AddToPlaylist {
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+        album_id: Option<i64>,
+    },
+    /// Removes tracks and reports the new order, in one `expectedRevision`.
+    RemoveFromPlaylist {
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    },
+    /// Moves the track at `from` to `to` (playlist detail order).
+    MovePlaylistItem {
+        playlist_id: i64,
+        from: usize,
+        to: usize,
+    },
+    /// Replaces the playlist artwork with the file at `path`.
+    UploadPlaylistArtwork {
+        playlist_id: i64,
+        path: PathBuf,
+    },
+    DeletePlaylistArtwork(i64),
 }
 
 /// When playback stops by itself (the Electron sleep timer modes).
@@ -151,8 +210,13 @@ struct Sleep {
 /// Tracks to add to the queue.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrackSource {
-    /// One row of the loaded track list.
-    Library(usize),
+    /// Row `index` of the current view.
+    Row(usize),
+    /// One track by id (a row of a mixed page, e.g. search results).
+    Track(i64),
+    /// The whole current view.
+    View,
+    /// A whole album, by id (a card's context menu).
     Album(i64),
 }
 
@@ -211,24 +275,6 @@ impl From<AuthError> for LoginFailure {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct AlbumItem {
-    pub id: i64,
-    pub title: String,
-    pub artist: String,
-    pub year: i32,
-    pub artwork: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct TrackItem {
-    pub id: i64,
-    pub title: String,
-    pub artist: String,
-    pub album: String,
-    pub duration: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
 pub struct NowPlaying {
     pub track_id: i64,
     pub title: String,
@@ -272,19 +318,45 @@ pub enum Event {
     /// Back to the sign-in form; playback stopped and lists cleared.
     /// A [`Event::SavedLogin`] with what is left saved follows.
     SignedOut(SignOutReason),
-    AlbumsReset,
-    AlbumsAppended {
-        items: Vec<AlbumItem>,
-        total: usize,
+    /// The main pane switched to `view`; rows follow.
+    ViewReset {
+        view: View,
+        header: ViewHeader,
     },
-    TracksReset,
-    TracksAppended {
-        items: Vec<TrackItem>,
+    /// The header of the current view changed (first page of a list).
+    ViewHeader(ViewHeader),
+    /// One page of the current view, appended to its rows.
+    ViewRows {
+        view: View,
+        rows: Vec<ViewRow>,
         total: usize,
+        loaded: usize,
+    },
+    /// Tracks behind the current view's rows: `PlayRow(index)` resolves there.
+    ViewTracks(Vec<Track>),
+    /// The current view's load failed; `empty` means nothing was shown yet
+    /// (the pane then offers a retry instead of waiting for a scroll).
+    LoadFailed {
+        view: View,
+        empty: bool,
+        message: String,
+    },
+    /// The playlists of the "add to playlist" menu.
+    Playlists(Vec<PlaylistItem>),
+    /// An item's favorite state changed (the loaded rows are updated).
+    Favorite {
+        kind: FavoriteKind,
+        id: i64,
+        favorite: bool,
     },
     Image {
         key: String,
         image: Rgba,
+    },
+    /// The artwork could not be loaded; the UI releases its request so a
+    /// later repaint may try again.
+    ImageFailed {
+        key: String,
     },
     NowPlaying(Option<NowPlaying>),
     /// The whole queue in play order, and the current row.
@@ -328,16 +400,52 @@ enum Internal {
     Unauthorized {
         api_token: String,
     },
-    AlbumsPage {
+    /// One page of the current view; `revision` drops stale answers.
+    ViewPage {
         generation: u64,
-        items: Vec<AlbumItem>,
-        total: usize,
+        revision: u64,
+        view: View,
+        query: Box<ListQuery>,
+        page: Box<Result<ViewPage, api::ApiError>>,
     },
-    TracksPage {
+    /// A whole-library random sample for shuffle-all.
+    RandomTracks {
         generation: u64,
-        tracks: Vec<Track>,
-        total: usize,
+        tracks: Result<Vec<Track>, api::ApiError>,
     },
+    /// A playlist write finished.
+    PlaylistChanged {
+        generation: u64,
+        /// `Some(id)`: re-read that playlist; `None`: it was deleted.
+        reload: Option<i64>,
+        /// Revision the server returned (bumped the open playlist).
+        revision: Option<i64>,
+        /// Tracks appended to the open playlist, in order.
+        appended: Vec<i64>,
+        /// Removed tracks (the open playlist drops them).
+        removed: Vec<i64>,
+        /// Order sent by a reorder (the open playlist adopts it).
+        order: Option<Vec<i64>>,
+        /// The write took the editor's `busy` flag (remove / reorder): only
+        /// such a write may release it, otherwise an unrelated success would
+        /// unlock a write that is still in flight.
+        exclusive: bool,
+        /// User-facing result on success ("已添加 3 首到歌单 X").
+        notice: Option<String>,
+        result: Result<(), api::ApiError>,
+    },
+    Playlists {
+        generation: u64,
+        items: Result<Vec<PlaylistItem>, api::ApiError>,
+    },
+    FavoriteSet {
+        generation: u64,
+        kind: FavoriteKind,
+        id: i64,
+        favorite: bool,
+        result: Result<(), api::ApiError>,
+    },
+    /// Tracks of an album (playing it or queueing it whole).
     AlbumTracks(Result<Vec<Track>, api::ApiError>, Enqueue),
     AudioDeviceSet(Option<String>, Result<(), String>),
     ExclusiveSet(bool, Result<(), String>),
@@ -348,7 +456,6 @@ enum Internal {
         track_id: i64,
         lyrics: Option<api::Lyrics>,
     },
-    Notice(String),
 }
 
 /// Handle to the running core. Dropping it does not stop the core; call
@@ -462,7 +569,34 @@ struct Library {
     client: Client,
     capabilities: Capabilities,
     images: Arc<Images>,
-    tracks: Vec<Track>,
+}
+
+/// A finished playlist write, as the loop handles it.
+struct PlaylistChanged {
+    generation: u64,
+    reload: Option<i64>,
+    revision: Option<i64>,
+    appended: Vec<i64>,
+    removed: Vec<i64>,
+    order: Option<Vec<i64>>,
+    exclusive: bool,
+    notice: Option<String>,
+    result: Result<(), api::ApiError>,
+}
+
+/// The playlist open in the editor: its tracks in order and the revision
+/// returned by the server (`expectedRevision` of remove / order).
+#[derive(Clone, Debug)]
+pub struct PlaylistEdit {
+    pub id: i64,
+    pub name: String,
+    pub revision: i64,
+    pub track_ids: Vec<i64>,
+    pub description: String,
+    /// A write is in flight: its revision will not match the local order
+    /// until it returns, so a second write is refused rather than sent with
+    /// a mismatched revision and track list.
+    pub busy: bool,
 }
 
 /// Runs a blocking secret-store call off the async workers.
@@ -612,6 +746,14 @@ struct Core {
     sleep: Option<Sleep>,
     /// Bumped per sleep timer start / cancel; stale ticks are ignored.
     sleep_generation: u64,
+    /// The view shown in the main pane: rows, tracks and header.
+    view: ViewState,
+    /// Random seeds of `sort=random`.
+    seeds: Seeds,
+    /// Playlist being edited (its tracks and revision).
+    playlist: Option<PlaylistEdit>,
+    /// The playlists of the "add to playlist" menu.
+    playlists: Vec<PlaylistItem>,
 }
 
 impl Core {
@@ -657,6 +799,10 @@ impl Core {
             saved_position_step: -1,
             sleep: None,
             sleep_generation: 0,
+            view: ViewState::default(),
+            seeds: Seeds::default(),
+            playlist: None,
+            playlists: Vec::new(),
         }
     }
 
@@ -756,6 +902,75 @@ impl Core {
     // ------------------------------------------------------------ commands
 
     fn command(&mut self, command: Command) {
+        if Self::is_catalog(&command) {
+            self.catalog_command(command);
+        } else {
+            self.base_command(command);
+        }
+    }
+
+    /// Commands that the catalog handles (they need the signed-in server).
+    fn is_catalog(command: &Command) -> bool {
+        matches!(
+            command,
+            Command::Navigate(_)
+                | Command::ListQuery { .. }
+                | Command::LoadMore
+                | Command::Search(_)
+                | Command::RefreshPlaylists
+                | Command::SetFavorite { .. }
+                | Command::CreatePlaylist { .. }
+                | Command::RenamePlaylist { .. }
+                | Command::DeletePlaylist(_)
+                | Command::AddToPlaylist { .. }
+                | Command::RemoveFromPlaylist { .. }
+                | Command::MovePlaylistItem { .. }
+                | Command::UploadPlaylistArtwork { .. }
+                | Command::DeletePlaylistArtwork(_)
+        )
+    }
+
+    /// Runs a catalog command.
+    fn catalog_command(&mut self, command: Command) {
+        match command {
+            Command::Navigate(view) => self.navigate(view),
+            Command::ListQuery { query } => self.query_view(query),
+            Command::LoadMore => self.load_more(),
+            Command::Search(needle) => self.navigate(View::Search(needle)),
+            Command::RefreshPlaylists => self.refresh_playlists(),
+            Command::SetFavorite { kind, id, favorite } => self.set_favorite(kind, id, favorite),
+            Command::CreatePlaylist { name, description } => {
+                self.create_playlist(name, description)
+            }
+            Command::RenamePlaylist {
+                id,
+                name,
+                description,
+            } => self.rename_playlist(id, name, description),
+            Command::DeletePlaylist(id) => self.delete_playlist(id),
+            Command::AddToPlaylist {
+                playlist_id,
+                track_ids,
+                album_id,
+            } => self.add_to_playlist(playlist_id, track_ids, album_id),
+            Command::RemoveFromPlaylist {
+                playlist_id,
+                track_ids,
+            } => self.remove_from_playlist(playlist_id, track_ids),
+            Command::MovePlaylistItem {
+                playlist_id,
+                from,
+                to,
+            } => self.move_playlist_item(playlist_id, from, to),
+            Command::UploadPlaylistArtwork { playlist_id, path } => {
+                self.upload_playlist_artwork(playlist_id, path)
+            }
+            Command::DeletePlaylistArtwork(id) => self.delete_playlist_artwork(id),
+            _ => unreachable!("not a catalog command"),
+        }
+    }
+
+    fn base_command(&mut self, command: Command) {
         match command {
             Command::Restore => {
                 let server = self.session_file.get(SERVER_KEY).unwrap_or_default();
@@ -801,25 +1016,37 @@ impl Core {
                 });
             }
             Command::Logout => self.sign_out(SignOutReason::User),
-            Command::PlayTracks { index } => {
-                let Some(library) = &self.library else { return };
-                let tracks = library.tracks.clone();
+            Command::PlayRow(index) => {
+                let tracks = self.view.tracks.clone();
                 if self.queue.replace(tracks, index).is_some() {
+                    self.play_current(true);
+                }
+                self.queue_changed();
+            }
+            Command::PlayView => {
+                let tracks = self.view.tracks.clone();
+                if self.queue.replace(tracks, 0).is_some() {
                     self.play_current(true);
                 }
                 self.queue_changed();
             }
             Command::PlayAlbum { album_id } => self.fetch_album(album_id, Enqueue::Play),
             Command::Enqueue { source, at } => match source {
-                TrackSource::Library(index) => {
-                    let Some(track) = self.library.as_ref().and_then(|l| l.tracks.get(index))
-                    else {
-                        return;
-                    };
-                    let track = track.clone();
-                    self.enqueue(vec![track], at);
+                TrackSource::Row(index) => {
+                    if let Some(track) = self.view.tracks.get(index).cloned() {
+                        self.enqueue(vec![track], at);
+                    }
+                }
+                TrackSource::View => {
+                    let tracks = self.view.tracks.clone();
+                    self.enqueue(tracks, at);
                 }
                 TrackSource::Album(album_id) => self.fetch_album(album_id, at.into()),
+                TrackSource::Track(id) => {
+                    if let Some(track) = self.view.tracks.iter().find(|t| t.id == id).cloned() {
+                        self.enqueue(vec![track], at);
+                    }
+                }
             },
             Command::PlayQueueItem(uid) => {
                 if self.queue.go_to_uid(uid).is_some() {
@@ -839,6 +1066,7 @@ impl Core {
                 self.emit(Event::Repeat(repeat));
                 self.sync_preload();
             }
+            Command::ShuffleAll => self.shuffle_all(),
             Command::SetShuffle(shuffle) => {
                 self.queue.set_shuffle(shuffle);
                 self.update_settings(|s| s.shuffle = shuffle);
@@ -919,20 +1147,587 @@ impl Core {
                 }
             }
             Command::LoadImage { key, path, px } => {
-                let Some(library) = &self.library else { return };
+                let Some(library) = &self.library else {
+                    // No server to load from: the request can never succeed,
+                    // so release the claim on the UI side.
+                    self.emit(Event::ImageFailed { key });
+                    return;
+                };
                 let images = library.images.clone();
                 let Some(url) = images.url(&path, px) else {
+                    self.emit(Event::ImageFailed { key });
                     return;
                 };
                 let sink = self.sink.clone();
                 tokio::spawn(async move {
                     match images.load(url, px).await {
                         Ok(image) => sink(Event::Image { key, image }),
-                        Err(e) => tracing::debug!("artwork {path}: {e}"),
+                        Err(e) => {
+                            tracing::debug!("artwork {path}: {e}");
+                            // The UI must be able to ask again later.
+                            sink(Event::ImageFailed { key });
+                        }
                     }
                 });
             }
+            // Catalog commands: see `catalog_command`.
+            Command::Navigate(_)
+            | Command::ListQuery { .. }
+            | Command::LoadMore
+            | Command::Search(_)
+            | Command::RefreshPlaylists
+            | Command::SetFavorite { .. }
+            | Command::CreatePlaylist { .. }
+            | Command::RenamePlaylist { .. }
+            | Command::DeletePlaylist(_)
+            | Command::AddToPlaylist { .. }
+            | Command::RemoveFromPlaylist { .. }
+            | Command::MovePlaylistItem { .. }
+            | Command::UploadPlaylistArtwork { .. }
+            | Command::DeletePlaylistArtwork(_) => {}
         }
+    }
+
+    /// Shows `view` from scratch.
+    fn navigate(&mut self, view: View) {
+        self.view.reset(view);
+        self.emit(Event::ViewReset {
+            view: self.view.view.clone(),
+            header: self.view.header.clone(),
+        });
+        self.load_view();
+    }
+
+    /// Replaces the query of the current list view and reloads it.
+    fn query_view(&mut self, query: ListQuery) {
+        let view = self.view.view.clone();
+        // Keep the header the user is looking at: only the query changes.
+        let skeleton = self.view.header.clone();
+        self.view.reset_with(view, query, Some(&skeleton));
+        self.emit(Event::ViewReset {
+            view: self.view.view.clone(),
+            header: self.view.header.clone(),
+        });
+        self.load_view();
+    }
+
+    /// Requests the next page of the current view.
+    fn load_more(&mut self) {
+        self.load_view();
+    }
+
+    fn load_view(&mut self) {
+        let Some(library) = &self.library else { return };
+        let Some(offset) = self.view.next else { return };
+        if self.view.loading {
+            return;
+        }
+        let view = self.view.view.clone();
+        let query = self.view.query.clone();
+        let revision = self.view.revision;
+        let seed = self.seeds.for_query(&query, offset);
+        self.view.next = None;
+        self.view.loading = true;
+        let client = library.client.clone();
+        let capabilities = library.capabilities.clone();
+        let generation = self.list_generation;
+        let tx = self.internal.clone();
+        tokio::spawn(async move {
+            let page = views::load_page(&client, &capabilities, &view, &query, offset, seed).await;
+            let _ = tx.send(Internal::ViewPage {
+                generation,
+                revision,
+                view,
+                query: Box::new(query),
+                page: Box::new(page),
+            });
+        });
+    }
+
+    /// Applies a loaded page to the current view.
+    fn view_page(
+        &mut self,
+        generation: u64,
+        revision: u64,
+        view: View,
+        query: ListQuery,
+        page: Result<ViewPage, api::ApiError>,
+    ) {
+        if generation != self.list_generation || self.view.revision != revision {
+            return;
+        }
+        if self.view.view != view || self.view.query != query {
+            return;
+        }
+        self.view.loading = false;
+        let page = match page {
+            Ok(page) => page,
+            Err(e) => {
+                // Keep the rows already loaded and let the UI retry: a first
+                // page that failed has nothing to scroll, so the pane shows a
+                // retry button (Event::LoadFailed) instead of `load-more`.
+                self.view.next = Some(u32::try_from(self.view.rows.len()).unwrap_or(u32::MAX));
+                self.emit(Event::LoadFailed {
+                    view: self.view.view.clone(),
+                    empty: self.view.rows.is_empty(),
+                    message: e.to_string(),
+                });
+                self.notice_for("加载失败", &e);
+                return;
+            }
+        };
+        let n = page.rows.len();
+        if let Some(header) = page.header {
+            self.view.header = header;
+            self.emit(Event::ViewHeader(self.view.header.clone()));
+        }
+        if let Some(edit) = page.playlist {
+            self.playlist = Some(edit);
+        }
+        if let Some(notice) = page.notice {
+            self.emit(Event::Notice(notice));
+        }
+        self.view.total = page.total;
+        self.view.tracks.extend(page.tracks);
+        self.view.rows.extend(page.rows);
+        let loaded = self.view.rows.len();
+        self.view.next = (n > 0 && loaded < page.total && view.is_paged())
+            .then(|| u32::try_from(loaded).unwrap_or(u32::MAX));
+        let end = loaded;
+        let rows = self.view.rows[loaded - n..end].to_vec();
+        self.emit(Event::ViewRows {
+            view,
+            rows,
+            total: self.view.total,
+            loaded,
+        });
+        let tracks = self.view.tracks.clone();
+        if !tracks.is_empty() {
+            self.emit(Event::ViewTracks(tracks));
+        }
+    }
+
+    /// A user-facing error; an expired token signs out instead.
+    fn notice_for(&mut self, what: &str, e: &api::ApiError) {
+        if e.is_unauthorized() {
+            self.sign_out(SignOutReason::Expired);
+        } else {
+            self.emit(Event::Notice(format!("{what}：{e}")));
+        }
+    }
+
+    /// Flips the favorite flag of the loaded copies of an item.
+    fn apply_favorite(&mut self, kind: FavoriteKind, id: i64, favorite: bool) {
+        for row in &mut self.view.rows {
+            // Only the rows of the same kind: a search page can hold an album
+            // and a track with the same id.
+            if row.id == id && row.kind.favorite_kind() == Some(kind) {
+                row.favorite = favorite;
+            }
+        }
+    }
+
+    fn set_favorite(&mut self, kind: FavoriteKind, id: i64, favorite: bool) {
+        let Some(library) = &self.library else { return };
+        let client = library.client.clone();
+        let tx = self.internal.clone();
+        let generation = self.list_generation;
+        tokio::spawn(async move {
+            let result = client.set_favorite(kind.segment(), id, favorite).await;
+            let _ = tx.send(Internal::FavoriteSet {
+                generation,
+                kind,
+                id,
+                favorite,
+                result,
+            });
+        });
+    }
+
+    fn refresh_playlists(&mut self) {
+        let Some(library) = &self.library else { return };
+        let client = library.client.clone();
+        let tx = self.internal.clone();
+        let generation = self.list_generation;
+        tokio::spawn(async move {
+            let result = library::fetch_playlists(&client).await;
+            let _ = tx.send(Internal::Playlists {
+                generation,
+                items: result,
+            });
+        });
+    }
+
+    // ------------------------------------------------------------ playlists
+
+    /// A finished write: its result plus what the open playlist should adopt.
+    fn playlist_write(&mut self, msg: PlaylistChanged) {
+        if msg.generation != self.list_generation {
+            return;
+        }
+        match msg.result {
+            Ok(()) => {
+                if let Some(notice) = msg.notice {
+                    self.emit(Event::Notice(notice));
+                }
+                // Apply the change to the open editor so the next write uses
+                // the new revision without a reload.
+                if let Some(edit) = self.playlist.as_mut()
+                    && msg.reload.is_none_or(|id| id == edit.id)
+                {
+                    if msg.exclusive {
+                        edit.busy = false;
+                    }
+                    edit.track_ids.extend(msg.appended.iter().copied());
+                    edit.track_ids.retain(|id| !msg.removed.contains(id));
+                    if let Some(order) = &msg.order {
+                        edit.track_ids.clone_from(order);
+                    }
+                    if let Some(revision) = msg.revision {
+                        edit.revision = revision;
+                    }
+                }
+                match msg.reload {
+                    // Re-read the playlist only when it is on screen.
+                    Some(id) if self.view.view == View::Playlist(id) => {
+                        self.navigate(View::Playlist(id));
+                    }
+                    Some(_) => {
+                        // Created: the playlists panel shows it too, keeping
+                        // the sort the user picked.
+                        if self.view.view == View::Playlists {
+                            let query = self.view.query.clone();
+                            self.query_view(query);
+                        }
+                        self.refresh_playlists();
+                    }
+                    None => {
+                        // Deleted: drop the editor and leave a deleted
+                        // playlist's page; the list is reloaded either way.
+                        self.playlist = None;
+                        if self.view.view.is_playlist() {
+                            self.navigate(View::Playlists);
+                        } else if self.view.view == View::Playlists {
+                            let query = self.view.query.clone();
+                            self.query_view(query);
+                        }
+                        self.refresh_playlists();
+                    }
+                }
+            }
+            Err(e) => {
+                // Whatever failed, the editor must accept a write again: a
+                // failure that kept `busy` would refuse every later edit.
+                if let Some(edit) = self.playlist.as_mut() {
+                    edit.busy = false;
+                }
+                let open = msg.reload.or_else(|| self.playlist.as_ref().map(|p| p.id));
+                if e.code() == Some("playlist_conflict") {
+                    // Another client edited it: reload so the next try uses
+                    // the current revision.
+                    if let Some(id) = open {
+                        self.navigate(View::Playlist(id));
+                    }
+                    self.emit(Event::Notice(
+                        "歌单已被其他客户端修改，已刷新，请重试".into(),
+                    ));
+                } else {
+                    self.notice_for("修改歌单失败", &e);
+                }
+            }
+        }
+    }
+
+    fn create_playlist(&mut self, name: String, description: String) {
+        let Some(library) = &self.library else { return };
+        let client = library.client.clone();
+        let tx = self.internal.clone();
+        let generation = self.list_generation;
+        tokio::spawn(async move {
+            let result = client.create_playlist(&name, &description).await;
+            let _ = tx.send(Internal::PlaylistChanged {
+                generation,
+                reload: result.as_ref().ok().map(|playlist| playlist.id),
+                revision: None,
+                appended: Vec::new(),
+                removed: Vec::new(),
+                order: None,
+                exclusive: false,
+                notice: result
+                    .as_ref()
+                    .ok()
+                    .map(|_| format!("已创建歌单「{name}」")),
+                result: result.map(|_| ()),
+            });
+        });
+    }
+
+    /// Renames a playlist. `PATCH` replaces both fields, so the description is
+    /// taken from the cached playlist, or read back when it is not loaded.
+    fn rename_playlist(&mut self, id: i64, name: String, _description: String) {
+        let Some(library) = &self.library else { return };
+        let client = library.client.clone();
+        let cached = self
+            .playlist
+            .as_ref()
+            .filter(|p| p.id == id)
+            .map(|p| p.description.clone());
+        let tx = self.internal.clone();
+        let generation = self.list_generation;
+        tokio::spawn(async move {
+            let description = match cached {
+                Some(description) => description,
+                None => match client.playlist(id).await {
+                    Ok(detail) => detail.playlist.description,
+                    Err(e) => {
+                        let _ = tx.send(Internal::PlaylistChanged {
+                            generation,
+                            reload: Some(id),
+                            revision: None,
+                            appended: Vec::new(),
+                            removed: Vec::new(),
+                            order: None,
+                            exclusive: false,
+                            notice: None,
+                            result: Err(e),
+                        });
+                        return;
+                    }
+                },
+            };
+            let result = client.update_playlist(id, &name, &description).await;
+            let _ = tx.send(Internal::PlaylistChanged {
+                generation,
+                reload: Some(id),
+                revision: None,
+                appended: Vec::new(),
+                removed: Vec::new(),
+                order: None,
+                exclusive: false,
+                notice: result.as_ref().ok().map(|_| format!("已改名为「{name}」")),
+                result: result.map(|_| ()),
+            });
+        });
+    }
+
+    fn delete_playlist(&mut self, id: i64) {
+        let Some(library) = &self.library else { return };
+        let client = library.client.clone();
+        let tx = self.internal.clone();
+        let generation = self.list_generation;
+        tokio::spawn(async move {
+            let result = client.delete_playlist(id).await;
+            let _ = tx.send(Internal::PlaylistChanged {
+                generation,
+                reload: None,
+                revision: None,
+                appended: Vec::new(),
+                removed: Vec::new(),
+                order: None,
+                exclusive: false,
+                notice: result.as_ref().ok().map(|()| "已删除歌单".to_owned()),
+                result,
+            });
+        });
+    }
+
+    fn add_to_playlist(&mut self, playlist_id: i64, track_ids: Vec<i64>, album_id: Option<i64>) {
+        let Some(library) = &self.library else { return };
+        let client = library.client.clone();
+        let tx = self.internal.clone();
+        let generation = self.list_generation;
+        tokio::spawn(async move {
+            let result = match album_id {
+                Some(album_id) => client.append_playlist_album(playlist_id, album_id).await,
+                None => client.append_playlist_items(playlist_id, &track_ids).await,
+            };
+            let notice = result.as_ref().ok().map(|items| {
+                let mut text = format!("已添加 {} 首到歌单", items.added);
+                if items.skipped_duplicate > 0 {
+                    text.push_str(&format!("，跳过 {} 首重复", items.skipped_duplicate));
+                }
+                text
+            });
+            let _ = tx.send(Internal::PlaylistChanged {
+                generation,
+                reload: Some(playlist_id),
+                revision: result.as_ref().ok().map(|items| items.revision),
+                appended: Vec::new(),
+                removed: Vec::new(),
+                order: None,
+                exclusive: false,
+                notice,
+                result: result.map(|_| ()),
+            });
+        });
+    }
+
+    /// Removes tracks and reports the new order, in one `expectedRevision`.
+    fn remove_from_playlist(&mut self, playlist_id: i64, track_ids: Vec<i64>) {
+        let Some(library) = &self.library else { return };
+        let Some(revision) = self.playlist_revision(playlist_id) else {
+            self.emit(Event::Notice("歌单还在加载，请稍后重试".into()));
+            return;
+        };
+        if self.playlist_busy() {
+            self.emit(Event::Notice("上一次修改还没完成，请稍后重试".into()));
+            return;
+        }
+        if let Some(edit) = self.playlist.as_mut() {
+            edit.busy = true;
+        }
+        let client = library.client.clone();
+        let tx = self.internal.clone();
+        let generation = self.list_generation;
+        tokio::spawn(async move {
+            let result = client
+                .remove_playlist_items(playlist_id, &track_ids, revision)
+                .await;
+            let removed = result
+                .as_ref()
+                .map(|_| track_ids.clone())
+                .unwrap_or_default();
+            let notice = result
+                .as_ref()
+                .ok()
+                .map(|items| format!("已从歌单移除 {} 首", items.removed));
+            let _ = tx.send(Internal::PlaylistChanged {
+                generation,
+                reload: Some(playlist_id),
+                revision: result.as_ref().ok().map(|items| items.revision),
+                appended: Vec::new(),
+                removed,
+                order: None,
+                exclusive: true,
+                notice,
+                result: result.map(|_| ()),
+            });
+        });
+    }
+
+    fn move_playlist_item(&mut self, playlist_id: i64, from: usize, to: usize) {
+        let Some(library) = &self.library else { return };
+        let Some(edit) = self.playlist.as_ref().filter(|p| p.id == playlist_id) else {
+            self.emit(Event::Notice("歌单还在加载，请稍后重试".into()));
+            return;
+        };
+        if edit.busy {
+            self.emit(Event::Notice("上一次修改还没完成，请稍后重试".into()));
+            return;
+        }
+        let mut ids = edit.track_ids.clone();
+        let revision = edit.revision;
+        if from >= ids.len() || to >= ids.len() || from == to {
+            return;
+        }
+        let moved = ids.remove(from);
+        ids.insert(to, moved);
+        if let Some(edit) = self.playlist.as_mut() {
+            edit.busy = true;
+        }
+        let client = library.client.clone();
+        let tx = self.internal.clone();
+        let generation = self.list_generation;
+        tokio::spawn(async move {
+            let result = client
+                .reorder_playlist_items(playlist_id, &ids, revision)
+                .await;
+            let _ = tx.send(Internal::PlaylistChanged {
+                generation,
+                reload: Some(playlist_id),
+                revision: result.as_ref().ok().map(|items| items.revision),
+                appended: Vec::new(),
+                removed: Vec::new(),
+                order: result.is_ok().then(|| ids.clone()),
+                exclusive: true,
+                notice: None,
+                result: result.map(|_| ()),
+            });
+        });
+    }
+
+    fn upload_playlist_artwork(&mut self, playlist_id: i64, path: PathBuf) {
+        let Some(library) = &self.library else { return };
+        let client = library.client.clone();
+        let tx = self.internal.clone();
+        let generation = self.list_generation;
+        tokio::spawn(async move {
+            let result = match std::fs::read(&path) {
+                Ok(bytes) => {
+                    let name = path.file_name().map_or_else(
+                        || "artwork".to_owned(),
+                        |n| n.to_string_lossy().into_owned(),
+                    );
+                    client
+                        .upload_playlist_artwork(playlist_id, bytes, &name)
+                        .await
+                        .map(|artwork| artwork.revision)
+                }
+                Err(e) => Err(api::ApiError::Decode(format!("读取封面失败：{e}"))),
+            };
+            let _ = tx.send(Internal::PlaylistChanged {
+                generation,
+                reload: Some(playlist_id),
+                revision: result.as_ref().ok().copied(),
+                appended: Vec::new(),
+                removed: Vec::new(),
+                order: None,
+                exclusive: false,
+                notice: result.as_ref().ok().map(|_| "封面已更新".to_owned()),
+                result: result.map(|_| ()),
+            });
+        });
+    }
+
+    fn delete_playlist_artwork(&mut self, playlist_id: i64) {
+        let Some(library) = &self.library else { return };
+        let client = library.client.clone();
+        let tx = self.internal.clone();
+        let generation = self.list_generation;
+        tokio::spawn(async move {
+            let result = client.delete_playlist_artwork(playlist_id).await;
+            let _ = tx.send(Internal::PlaylistChanged {
+                generation,
+                reload: Some(playlist_id),
+                revision: None,
+                appended: Vec::new(),
+                removed: Vec::new(),
+                order: None,
+                exclusive: false,
+                notice: result.as_ref().ok().map(|()| "封面已删除".to_owned()),
+                result,
+            });
+        });
+    }
+
+    /// A write to the open playlist is in flight.
+    fn playlist_busy(&self) -> bool {
+        self.playlist.as_ref().is_some_and(|p| p.busy)
+    }
+
+    /// Revision of the open playlist (`expectedRevision` of item writes).
+    fn playlist_revision(&self, playlist_id: i64) -> Option<i64> {
+        self.playlist
+            .as_ref()
+            .filter(|p| p.id == playlist_id)
+            .map(|p| p.revision)
+    }
+
+    /// Whole-library random play (`/browse/tracks?sort=random` on a browse
+    /// server, a sampled window otherwise).
+    fn shuffle_all(&mut self) {
+        let Some(library) = &self.library else { return };
+        let client = library.client.clone();
+        let capabilities = library.capabilities.clone();
+        let tx = self.internal.clone();
+        let generation = self.list_generation;
+        tokio::spawn(async move {
+            let result = library::random_tracks(&client, &capabilities, 200).await;
+            let _ = tx.send(Internal::RandomTracks {
+                generation,
+                tracks: result,
+            });
+        });
     }
 
     // ------------------------------------------------------------ playback
@@ -1053,9 +1848,9 @@ impl Core {
         let browse = library.capabilities.has(Feature::Browse);
         let tx = self.internal.clone();
         tokio::spawn(async move {
-            let query = TrackListQuery {
+            let query = api::TrackListQuery {
                 album_id: Some(album_id),
-                ..TrackListQuery::default()
+                ..api::TrackListQuery::default()
             };
             let result = fetch_all_tracks(&client, browse, &query).await;
             let _ = tx.send(Internal::AlbumTracks(result, intent));
@@ -1583,30 +2378,73 @@ impl Core {
                     self.sign_out(SignOutReason::Expired);
                 }
             }
-            Internal::AlbumsPage {
+            Internal::ViewPage {
                 generation,
-                items,
-                total,
-            } => {
+                revision,
+                view,
+                query,
+                page,
+            } => self.view_page(generation, revision, view, *query, *page),
+            Internal::RandomTracks {
+                generation,
+                tracks: result,
+            } => match result {
+                _ if generation != self.list_generation => {}
+                Ok(tracks) if !tracks.is_empty() => {
+                    if self.queue.replace(tracks, 0).is_some() {
+                        self.play_current(true);
+                    }
+                    self.queue_changed();
+                }
+                Ok(_) => self.emit(Event::Notice("曲库是空的".into())),
+                Err(e) => self.notice_for("随机播放失败", &e),
+            },
+            Internal::PlaylistChanged {
+                generation,
+                reload,
+                revision,
+                appended,
+                removed,
+                order,
+                exclusive,
+                notice,
+                result,
+            } => self.playlist_write(PlaylistChanged {
+                generation,
+                reload,
+                revision,
+                appended,
+                removed,
+                order,
+                exclusive,
+                notice,
+                result,
+            }),
+            Internal::Playlists { generation, items } => {
                 if generation == self.list_generation {
-                    self.emit(Event::AlbumsAppended { items, total });
+                    match items {
+                        Ok(items) => {
+                            self.playlists.clone_from(&items);
+                            self.emit(Event::Playlists(items));
+                        }
+                        Err(e) => self.notice_for("加载歌单失败", &e),
+                    }
                 }
             }
-            Internal::TracksPage {
+            Internal::FavoriteSet {
                 generation,
-                tracks,
-                total,
-            } => {
-                if generation != self.list_generation {
-                    return;
+                kind,
+                id,
+                favorite,
+                result,
+            } => match result {
+                _ if generation != self.list_generation => {}
+                Ok(()) => {
+                    self.apply_favorite(kind, id, favorite);
+                    self.emit(Event::Favorite { kind, id, favorite });
                 }
-                let Some(library) = self.library.as_mut() else {
-                    return;
-                };
-                let items = tracks.iter().map(track_item).collect();
-                library.tracks.extend(tracks);
-                self.emit(Event::TracksAppended { items, total });
-            }
+                Err(e) => self.notice_for("收藏失败", &e),
+            },
             Internal::AlbumTracks(Ok(tracks), Enqueue::Play) => {
                 if self.queue.replace(tracks, 0).is_some() {
                     self.play_current(true);
@@ -1650,7 +2488,6 @@ impl Core {
                     self.update_active_line();
                 }
             }
-            Internal::Notice(text) => self.emit(Event::Notice(text)),
             Internal::AudioDeviceSet(device, result) => {
                 self.output_busy = false;
                 match result {
@@ -1757,8 +2594,17 @@ impl Core {
             synced: false,
             source: None,
         });
-        self.emit(Event::AlbumsReset);
-        self.emit(Event::TracksReset);
+        self.view.reset(View::Albums);
+        // Nothing of the old server may survive: a late answer of its tasks
+        // is dropped by the generation, but the cached state is cleared too.
+        self.playlist = None;
+        self.playlists.clear();
+        self.seeds = Seeds::default();
+        self.emit(Event::Playlists(Vec::new()));
+        self.emit(Event::ViewReset {
+            view: self.view.view.clone(),
+            header: self.view.header.clone(),
+        });
         self.emit(Event::Queue {
             items: Vec::new(),
             current: None,
@@ -1785,101 +2631,31 @@ impl Core {
             Box::new(storage),
             reporter_tx,
         ));
-        let browse = capabilities.has(Feature::Browse);
         self.library = Some(Library {
             images: Arc::new(Images::new(client.clone())),
             client: client.clone(),
             capabilities,
-            tracks: Vec::new(),
         });
         self.emit(Event::LoggedIn {
             server_url: client.base_url().to_owned(),
         });
-
-        self.emit(Event::AlbumsReset);
-        self.emit(Event::TracksReset);
         self.restore_queue();
-
-        let albums_client = client.clone();
-        let tx = self.internal.clone();
-        tokio::spawn(async move {
-            let query = AlbumListQuery {
-                sort: Some(AlbumSort::Added),
-                order: Some(SortOrder::Desc),
-                ..AlbumListQuery::default()
-            };
-            let mut offset = 0u32;
-            loop {
-                match albums_client.albums(browse, &query, offset, PAGE).await {
-                    Ok(page) => {
-                        let n = u32::try_from(page.items.len()).unwrap_or(u32::MAX);
-                        let total = usize::try_from(page.total).unwrap_or(0);
-                        let items = page.items.iter().map(album_item).collect();
-                        let msg = Internal::AlbumsPage {
-                            generation,
-                            items,
-                            total,
-                        };
-                        offset += n;
-                        if tx.send(msg).is_err() || n == 0 || i64::from(offset) >= page.total {
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        let msg = unauthorized(&albums_client, &e)
-                            .unwrap_or_else(|| Internal::Notice(format!("加载专辑失败：{e}")));
-                        let _ = tx.send(msg);
-                        break;
-                    }
-                }
-            }
-        });
-
-        let tx = self.internal.clone();
-        tokio::spawn(async move {
-            let query = TrackListQuery {
-                sort: Some(TrackSort::Added),
-                order: Some(SortOrder::Desc),
-                ..TrackListQuery::default()
-            };
-            let mut offset = 0u32;
-            loop {
-                match client.tracks(browse, &query, offset, PAGE).await {
-                    Ok(page) => {
-                        let n = u32::try_from(page.items.len()).unwrap_or(u32::MAX);
-                        let total = usize::try_from(page.total).unwrap_or(0);
-                        let done = n == 0 || i64::from(offset + n) >= page.total;
-                        offset += n;
-                        let msg = Internal::TracksPage {
-                            generation,
-                            tracks: page.items,
-                            total,
-                        };
-                        if tx.send(msg).is_err() || done {
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        let msg = unauthorized(&client, &e)
-                            .unwrap_or_else(|| Internal::Notice(format!("加载曲目失败：{e}")));
-                        let _ = tx.send(msg);
-                        break;
-                    }
-                }
-            }
-        });
+        // The sidebar shows the album grid after signing in.
+        self.navigate(View::Albums);
+        self.refresh_playlists();
     }
 }
 
+/// Every page of a track list.
 async fn fetch_all_tracks(
     client: &Client,
     browse: bool,
-    query: &TrackListQuery,
+    query: &api::TrackListQuery,
 ) -> Result<Vec<Track>, api::ApiError> {
     let mut out = Vec::new();
     loop {
         let offset = u32::try_from(out.len()).unwrap_or(u32::MAX);
-        let page = client.tracks(browse, query, offset, PAGE).await?;
+        let page = client.tracks(browse, query, offset, library::PAGE).await?;
         let n = page.items.len();
         out.extend(page.items);
         if n == 0 || i64::try_from(out.len()).unwrap_or(i64::MAX) >= page.total {
@@ -1898,25 +2674,5 @@ fn write_atomic(path: &std::path::Path, bytes: &[u8]) {
     if let Err(e) = result {
         let _ = std::fs::remove_file(&tmp);
         tracing::warn!("writing {}: {e}", path.display());
-    }
-}
-
-fn album_item(album: &api::Album) -> AlbumItem {
-    AlbumItem {
-        id: album.id,
-        title: album.title.clone(),
-        artist: album.artist.clone(),
-        year: album.year,
-        artwork: album.artwork_url.clone(),
-    }
-}
-
-fn track_item(track: &Track) -> TrackItem {
-    TrackItem {
-        id: track.id,
-        title: track.title.clone(),
-        artist: track.artist.clone(),
-        album: track.album.clone(),
-        duration: format::duration(track.duration_millis),
     }
 }

@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use client_core::{
     AudioDevice, Command, CoreConfig, CoreHandle, Engine, EngineEnd, EngineEvent, Event,
-    MemorySecrets, QueuePosition, Repeat, Settings, SleepTimer, TrackSource,
+    MemorySecrets, QueuePosition, Repeat, Settings, SleepTimer, TrackSource, View,
 };
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
@@ -136,9 +136,18 @@ impl Harness {
         h
     }
 
+    /// Switches to the track list and waits for it.
     fn wait_tracks(&self) {
+        self.send(Command::Navigate(View::Tracks));
         self.wait("tracks", |e| {
-            matches!(e, Event::TracksAppended { total: 3, .. })
+            matches!(
+                e,
+                Event::ViewRows {
+                    view: View::Tracks,
+                    total: 3,
+                    ..
+                }
+            )
         });
     }
 
@@ -271,7 +280,7 @@ async fn gapless_queue_editing_and_repeat() {
     let server = server().await;
     let h = Harness::start(&server).await;
 
-    h.send(Command::PlayTracks { index: 0 });
+    h.send(Command::PlayRow(0));
     h.wait_playing(1);
     assert_eq!(h.wait_queue(), (titles(&[1, 2, 3]), Some(0)));
     // The next file is preloaded once the current one has loaded.
@@ -287,7 +296,7 @@ async fn gapless_queue_editing_and_repeat() {
 
     // "Play next" changes what comes next: the preload follows.
     h.send(Command::Enqueue {
-        source: TrackSource::Library(0),
+        source: TrackSource::Row(0),
         at: QueuePosition::Next,
     });
     assert_eq!(h.wait_queue(), (titles(&[1, 2, 1, 3]), Some(1)));
@@ -354,7 +363,7 @@ async fn restart_restores_the_queue_and_resumes_the_chain() {
     h.send(Command::SetShuffle(true));
     h.wait("shuffle", |e| *e == Event::Shuffle(true));
     assert_eq!(h.wait_queue(), (Vec::new(), None));
-    h.send(Command::PlayTracks { index: 1 });
+    h.send(Command::PlayRow(1));
     h.wait_playing(2);
     let (order, current) = h.wait_queue();
     assert_eq!((order[0].as_str(), current), ("曲2", Some(0)));
@@ -421,7 +430,7 @@ async fn sleep_timer_stops_at_the_end_of_the_track_or_album() {
     let server = server().await;
     let h = Harness::start(&server).await;
 
-    h.send(Command::PlayTracks { index: 0 });
+    h.send(Command::PlayRow(0));
     h.wait_playing(1);
     h.loaded(1);
     assert_eq!(h.calls().await, ["load 1", "clear", "append 2"]);

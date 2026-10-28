@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use client_core::{
     AudioDevice, Command, CoreConfig, Engine, EngineEnd, EngineEvent, Event, LoginFailure,
-    MemorySecrets, Settings,
+    MemorySecrets, Settings, View,
 };
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
@@ -185,28 +185,34 @@ async fn login_play_auto_advance_and_report() {
         media_token: "media".into(),
     });
     events.wait("login", |e| matches!(e, Event::LoggedIn { .. }));
-    // Albums and tracks load concurrently: accept either order.
-    let (mut albums, mut tracks) = (false, false);
-    while !(albums && tracks) {
-        match events.wait("lists", |e| {
-            matches!(
-                e,
-                Event::AlbumsAppended { .. } | Event::TracksAppended { .. }
-            )
-        }) {
-            Event::AlbumsAppended { items, total } => {
-                assert_eq!((items[0].title.as_str(), total), ("A", 1));
-                albums = true;
-            }
-            Event::TracksAppended { items, total } => {
-                assert_eq!((items.len(), total), (2, 2));
-                tracks = true;
-            }
-            _ => unreachable!(),
-        }
-    }
+    // Signing in opens the album grid.
+    let first = events.wait("albums", |e| matches!(e, Event::ViewRows { .. }));
+    let Event::ViewRows {
+        view, rows, total, ..
+    } = first
+    else {
+        unreachable!()
+    };
+    assert_eq!(view, View::Albums);
+    assert_eq!((rows[0].title.as_str(), rows.len(), total), ("A", 1, 1));
 
-    core.send(Command::PlayTracks { index: 0 });
+    // The track list is its own view.
+    core.send(Command::Navigate(View::Tracks));
+    let tracks = events.wait("tracks", |e| {
+        matches!(
+            e,
+            Event::ViewRows {
+                view: View::Tracks,
+                ..
+            }
+        )
+    });
+    let Event::ViewRows { rows, total, .. } = tracks else {
+        unreachable!()
+    };
+    assert_eq!((rows.len(), total), (2, 2));
+
+    core.send(Command::PlayRow(0));
     let now = events.wait("now playing", |e| matches!(e, Event::NowPlaying(Some(_))));
     let Event::NowPlaying(Some(now)) = now else {
         unreachable!()
