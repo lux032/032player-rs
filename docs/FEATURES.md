@@ -1,8 +1,8 @@
 # 功能对齐清单
 
-以 Electron 版 `/workspace/032musicplayer` 中 **032 服务端可用** 的功能为准。
-路径相对 `032musicplayer/src`，`ctrl` = `renderer/api/music032/music032-controller.ts`。
-行为细节、能力位、已知限制以 `032musicplayer/MUSIC032_CHANGES.md` 为准。
+以 Electron 客户端 [032musicplayer](https://github.com/lux032/032musicplayer) 中 **032 服务端可用** 的功能为准。
+下面的路径相对该仓库的 `src`，`ctrl` = `renderer/api/music032/music032-controller.ts`。
+行为细节、能力位、已知限制以该仓库的 `MUSIC032_CHANGES.md` 为准。本地有检出时按这些相对路径对照。
 
 里程碑列见 `PLAN.md`。勾选表示 Rust 版已完成。
 
@@ -66,7 +66,7 @@
 | 各列表支持的排序项 | `features/shared/components/list-sort-by-dropdown.tsx` `MUSIC032` | M2 | [x] |
 | 筛选：收藏、艺人、年份区间 | `features/shared/components/list-filters.tsx` | M2 | [x] 收藏走收藏页；艺人筛选原从艺人页「更多」进入，v0.2.3 去掉该按钮后暂无入口 |
 | 专辑详情（`trackCount` 超出嵌入曲目时用 `/tracks?album=` 分页补齐）、专辑音质汇总 | `ctrl` `getAlbumDetail` | M2 | [x] |
-| 艺人详情、作品集、热门歌曲 | `ctrl` `getAlbumArtistDetail` / `artistDiscography` / `getTopSongs` | M2 | [x] 热门歌曲按用户要求不显示（v0.2.3） |
+| 艺人详情、作品集、热门歌曲 | `ctrl` `getAlbumArtistDetail` / `artistDiscography` / `getTopSongs` | M2 | [x] 热门歌曲不显示（v0.2.3） |
 | 收藏：专辑 / 曲目 / 艺人；收藏页走 `/favorites/albums|tracks`，客户端排序筛选 | `ctrl` `favoriteAlbums` / `favoriteSongs` | M2 | [x] 曲目页签可播放 / 随机播放整个列表 |
 | 搜索 | `ctrl` `search` | M2 | [x] |
 | 相似歌曲 `/tracks/{id}/similar` | `ctrl` `similarTracks`、`features/similar-songs/` | M2 | [x] |
@@ -105,7 +105,7 @@
 | 翻译 `POST /tracks/{id}/lyrics/translation {targetLanguage}`；`translation_disabled` 时刷新能力位 | `features/lyrics/api/lyric-translate.ts` | M3 | [x] `translation_disabled` 后本次会话隐藏翻译 |
 | 显示方式：bilingual / translated | `features/lyrics/utils/translation-display-modes.ts` | M3 | [x] 另有自动翻译、目标语言 |
 | 偏移（仅当前会话） | - | M3 | [x] 按曲目 |
-| 假名注音、罗马音（原在主进程 kuromoji） | `main/features/core/lyrics/furigana.ts` | - | 删除（M4，用户决定不要；去掉 lindera 词典，包更小） |
+| 假名注音、罗马音（原在主进程 kuromoji） | `main/features/core/lyrics/furigana.ts` | - | 删除（M4；去掉 lindera 词典，包更小） |
 | 中文行用中文字体 | 提交 ec619cb0 | M3 | [ ] |
 
 ## 系统集成
@@ -122,7 +122,7 @@
 
 ## Sonos 投放
 
-参考 MusicBridge（`/workspace/MusicBridge`，Android 客户端）的 032 队列模式，路径相对
+参考 Android 客户端 [MusicBridge](https://github.com/lux032/MusicBridge) 的 032 队列模式。路径相对该仓库的
 `app/src/main/java/com/lux032/musicbridge`。Electron 版没有这个功能，以 MusicBridge 行为为准。
 
 | 功能 | 参考 | 里程碑 | 完成 |

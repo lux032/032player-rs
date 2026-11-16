@@ -1,12 +1,12 @@
 # 任务清单
 
-当前里程碑的细粒度任务。完成打勾；需要用户在 Windows 上验证的标 **[Win]**。
+当前里程碑的细粒度任务。完成打勾；需要在 Windows 上验证的标 **[Win]**。
 里程碑定义见 `PLAN.md`，功能条目见 `FEATURES.md`。
 
 ## 当前状态（2026-11-14）
 
 - **v0.2.15 已发布**（2026-11-14）：修复快速播放 / 暂停时的淡化任务竞态，增加网络缓冲与 mpv 原生警告日志，供后续定位偶发断音。
-  Windows exe 在本机用 `cargo-xwin` 交叉编译，NSIS 生成安装包；setup.exe 与便携 zip 直接上传 Release，未使用 Actions Artifact，下载回传的 SHA-256 与本地一致。
+  Windows exe 用 `cargo-xwin` 交叉编译，NSIS 生成安装包；setup.exe 与便携 zip 直接上传 Release，未使用 Actions Artifact，上传前核对过 SHA-256。
   发布地址：https://github.com/lux032/032player-rs/releases/tag/v0.2.15 。
 
 - [x] 初步排查偶发短暂断音：未发现应用定时 seek / 重载；`cache=auto` 与 URL 无扩展名不是根因。保留 `paused-for-cache`
@@ -14,7 +14,7 @@
 - [ ] **[Win]** 记录断音的曲目位置、系统时间、是否临近切歌 / 暂停、输出设备、独占 / 转码 / 代理状态；提供对应时段的
   `032player.log` 和脱敏后的 `mpv.log`，先区分缓存耗尽与输出 underrun，再针对根因修复。
 
-- **v0.2.14 已发布**（2026-11-14）：包含页面返回滚动位置记忆。Windows exe 在本机用 `cargo-xwin` 交叉编译，正式安装包改用 Linux 原生 NSIS 脚本 `packaging/windows/032player.nsi` 构建，便携 zip 与 setup.exe 直接上传 Release，未经 Actions Artifact。发布地址：https://github.com/lux032/032player-rs/releases/tag/v0.2.14 。
+- **v0.2.14 已发布**（2026-11-14）：包含页面返回滚动位置记忆。Windows exe 用 `cargo-xwin` 交叉编译，正式安装包改用 Linux 原生 NSIS 脚本 `packaging/windows/032player.nsi` 构建，便携 zip 与 setup.exe 直接上传 Release，未经 Actions Artifact。发布地址：https://github.com/lux032/032player-rs/releases/tag/v0.2.14 。
 
 - [x] 补齐页面返回时的滚动位置记忆：导航历史逐项保存主内容区和专辑信息栏偏移，前进打开新页面仍从顶部开始；专辑、曲目、艺人、歌单、收藏、搜索、主页、作品、系列、播放记录、设置及各类详情页均已接入，异步详情加载后再次恢复，筛选和页签切换回到顶部。`UI_SNAPSHOT_ONLY=scroll` 回归检查通过。
 - [ ] **[Win]** 在专辑、曲目、艺人、歌单等长列表滚到中部，进入详情再返回，确认停在原位置；检查艺人 / 作品等异步详情、多碟专辑和专辑右侧信息栏，确认新打开页面仍从顶部开始。
@@ -66,18 +66,18 @@
 
 - **v0.1.7 已发布**（2026-11-06）：https://github.com/lux032/032player-rs/releases/tag/v0.1.7 ，包含下面的 M4 后续 A-E。
 - **M4 后续（2026-11-06）A-E 全部完成**（淡入淡出、全屏播放器、P0 零碎项、浅色主题、更新提示），preview 包 `032player-windows-x64-5e3a49b.zip`
-  （https://github.com/lux032/032player-rs/releases/tag/preview ）。待用户 Windows 验证：见下方"M4 后续"各节的 **[Win]** 项。
+  （https://github.com/lux032/032player-rs/releases/tag/preview ）。待 Windows 验证：见下方"M4 后续"各节的 **[Win]** 项。
 - **v0.1.3 已发布**（2026-10-29）：https://github.com/lux032/032player-rs/releases/tag/v0.1.3 ，专辑卡片播放中角标；v0.1.2 播放中动态图标、侧栏歌单封面放大；v0.1.1 记住窗口大小，v0.1.0 是第一个正式版。
-- **M4 进行中**：用户看过 M1-M3，基本功能可用；M4 先做界面细节和能力与 Electron 版对齐，再做主题 / 打包 / i18n。任务见下方"M4 - 对齐与打磨"。
-  P0 五项的主体已完成并提交（`5fd3e29`），preview 包已更新（`032player-windows-x64-5fd3e29.zip`），ui-snapshot 检查过（`home-*.png`、`queue*.png`、`artist.png`、`album-works*.png`），等用户按"M4 验证清单"验证。
+- **M4 进行中**：M1-M3 基本功能可用；M4 先做界面细节和能力与 Electron 版对齐，再做主题 / 打包 / i18n。任务见下方"M4 - 对齐与打磨"。
+  P0 五项的主体已完成并提交（`5fd3e29`），preview 包已更新（`032player-windows-x64-5fd3e29.zip`），ui-snapshot 检查过（`home-*.png`、`queue*.png`、`artist.png`、`album-works*.png`），"M4 验证清单"里仍有未勾的 **[Win]** 项。
 - **M3 代码完成**，已提交（`466003b`），preview 包已更新（`032player-windows-x64-466003b.zip`，约 75 MB）（主页、作品、系列、每日推荐、播放记录、正在播放标识、歌词搜索 / 纠正 / 翻译 / 偏移 / 点击跳转、
-  假名注音 / 罗马音）。界面用 ui-snapshot 检查过；等用户按"M3 验证清单"验证。
+  假名注音 / 罗马音）。界面用 ui-snapshot 检查过；"M3 验证清单"是当时的 Windows 核对项。
 - **M2 代码完成**（曲库浏览：列表排序 / 筛选 / 随机 seed、专辑 / 艺人 / 歌单详情、收藏、搜索、歌单增删改 / 排序 / 封面、相似歌曲、
-  随机播放全部、可选转码、队列拖动排序）。已合并到 `main`（`cf2a2be`），界面用 ui-snapshot 检查过。等用户按下方"M2 验证清单"验证，
-  可以和 M1 验证清单一起做。M2 曾有三条并行实现分支，用户选定本实现，其余分支已删除。
+  随机播放全部、可选转码、队列拖动排序）。已合并到 `main`（`cf2a2be`），界面用 ui-snapshot 检查过。"M2 验证清单"可以和 M1 验证清单一起做。
+  M2 曾有三条并行实现分支，采用的是当前这份实现，其余分支已删除。
 - **M1 代码全部完成**（登录态、设置、队列与无缝播放、上报补全与重启恢复、系统集成、睡眠定时），CI 的 Linux / Windows job 均通过。
-  等用户按下方"M1 验证清单"在 Windows 上一次性验证。
-- M0：用户实测播放正常、封面清晰、没有阻断性问题；测量数据（内存、冷启动、滚动）还没收到，可以和 M1 一起测。
+  "M1 验证清单"是当时计划在 Windows 上一次性核对的项目。
+- M0：Windows 上播放正常、封面清晰、没有阻断性问题；测量数据（内存、冷启动、滚动）还没记下来，可以和 M1 一起测。
 - 测试包：Actions 里手动运行 **Package** 工作流，产物在 Release `preview`（便携 zip：exe + `libmpv-2.dll`，静态 CRT）。
   当前 preview 是 `main` 的 `af55df5`（M4 第四轮反馈）。注意 `preview` 只有一个：从任何分支运行 Package 都会覆盖它（Workflow 已调整为保留 3 天，待推送生效；此前默认保留 90 天）。
 - M1 有意没做的（记在各小节）：最小化到托盘、Linux 托盘。
@@ -85,7 +85,7 @@
 
 ## 多艺术家署名修正与三端适配
 
-方案见 [`MULTI-ARTIST-PLAN.md`](MULTI-ARTIST-PLAN.md)，交付与验收见 [`MULTI-ARTIST-ACCEPTANCE.md`](MULTI-ARTIST-ACCEPTANCE.md)。用户已授权跨仓库实施、提交、推送及构建；首轮代码完成，Rust v0.2.12 与 Android v1.1.1 正式包由标签触发，服务端与刮削器 main 推送触发镜像构建；真实曲库与真机验收未完成。
+方案见 [`MULTI-ARTIST-PLAN.md`](MULTI-ARTIST-PLAN.md)，交付与验收见 [`MULTI-ARTIST-ACCEPTANCE.md`](MULTI-ARTIST-ACCEPTANCE.md)。首轮代码完成，Rust v0.2.12 与 Android v1.1.1 正式包由标签触发，服务端与刮削器 main 推送触发镜像构建；真实曲库与真机验收未完成。
 
 - [x] 排查三端现状并细化方案：服务端结构化标签优先但不猜测拆英文逗号；Android 已有多人引用、存储和选择器；Rust 视图仍简化为第一位 ID
 - [x] 设计人工覆盖、最新底层署名、恢复默认与撤销的区别，明确重扫、补全、并发、合并及孤立清理边界
@@ -100,8 +100,8 @@
 - [x] S3 Rust：有序多人引用贯穿 browse/NowPlaying/UI；文字署名 `姓名 | 姓名` 独立点击，右键等单一入口多人选择，幕后单名链接仍直达
 - [x] 后续反馈：Rust 分组标题改为“合作作品”，文字署名支持双姓名独立点击；原先“按曲目合唱归类整张专辑”的实现已按下项纠正
 - [x] 修正合作作品的专辑归属：服务端不再用多人合唱覆盖个人专辑分类；本人页保留个人发行，客串方为参与作品，非合辑的共同专辑署名为合作发行，VA 合辑合唱归参与作品；曲目双方查询与多人引用不变。存储、API 和网页分组回归测试及服务端 `go test ./...` 全量通过；无需修改 Rust 运行代码，无需为分类重扫。
-- [x] 经用户授权提交并推送服务端 `e7a980e`（`[skip ci]`，确认未触发 Actions）；本地使用 Go 1.26.5 交叉编译 Linux amd64，复用上一正式镜像的运行环境，QEMU 容器启动、数据库健康检查与 FFmpeg MP3 / Opus 编码器检查通过；已上传 GHCR 的 `sha-e7a980e`、`main`、`latest`，远端架构、提交和三个标签摘要一致性核对通过。镜像摘要：`sha256:bbbcb5610f34489f2c1ea4a516331e322899043ad53e7fa4454f700d4618ba1a`。
-- [ ] 用户拉取本次服务端镜像并重建容器后，重新进入艺人页验证真实曲库；未操作线上服务，无需为本次分类修复重扫。
+- [x] 已提交并推送服务端 `e7a980e`（`[skip ci]`，确认未触发 Actions）；本地使用 Go 1.26.5 交叉编译 Linux amd64，复用上一正式镜像的运行环境，QEMU 容器启动、数据库健康检查与 FFmpeg MP3 / Opus 编码器检查通过；已上传 GHCR 的 `sha-e7a980e`、`main`、`latest`，远端架构、提交和三个标签摘要一致性核对通过。镜像摘要：`sha256:bbbcb5610f34489f2c1ea4a516331e322899043ad53e7fa4454f700d4618ba1a`。
+- [ ] 部署本次服务端镜像并重建容器后，重新进入艺人页验证真实曲库；当时未操作线上服务，无需为本次分类修复重扫。
 - [x] S3 Rust：队列署名更新不重建播放会话，单元测试与多人选择器软件渲染快照通过；工作区 Clippy 通过
 - [ ] S4 **[Android / Win]** 服务端修正样本后，两端刷新与重启，各个人页均可查到合作曲目；离线保持最后已知关系；收藏、歌单、播放记录不变
 
@@ -119,16 +119,16 @@
 - [x] 2026-11-14 存储额度告警：删除 v0.2.5 至 v0.2.13 的 8 个正式构建 Artifact，释放约 1.07 GiB；逐个确认对应 Release 的安装包和便携包完整，未删除任何 Release 或预览产物。正式 Release 工作流改为只上传 Release assets，不再重复保存约 144 MB 的 Artifact。
 - [x] 预览构建修复：Package 补齐从 `target/libmpv` 找回 DLL 的逻辑；删除 Artifact 后额度用量需 6-12 小时重算，因此预览也改为直接上传 Release assets，不再生成 Artifact。运行 `43560374622` 成功，`032player-windows-x64-ff0470d.zip` 已发布到 `preview`。
 - [x] 遍历 29 个可访问仓库，区分 Artifact、Cache、Release 与累计计费用量
-- [x] 经用户授权清理 194 个 Artifact，按 API 字节数释放约 3.292 GiB；保留所有 Release、最新 Rust 预览、近期测试产物与全部 Android 混淆映射
+- [x] 清理 194 个 Artifact，按 API 字节数释放约 3.292 GiB；保留所有 Release、最新 Rust 预览、近期测试产物与全部 Android 混淆映射
 - [x] 发布前复核发现 MusicBridge 的 APK 合集 #3、#4 没有对应 Release 备份，排除清理并保留
 - [x] 本地 `release.yml` / `package.yml` 的 Artifact 保留期设为 3 天；正式版与最新预览仍由 Release 提供下载
-- [ ] 推送 Workflow 保留期调整后才会在 GitHub 生效（本次仅本地提交，不推送）
+- [ ] 推送 Workflow 保留期调整后才会在 GitHub 生效（当时只改了仓库里的工作流文件）
 - [ ] 其他仓库的保留期优化尚未落地；MusicBridge 正式版 mapping 需先建立长期归档
 - [ ] 在 Billing 页面复核当前周期累计用量；删除不冲销已经累计的存储用量，现有凭据缺少计费查询权限
 
 ## UI 改版（v3 Editorial）
 
-计划、规格、行为差异 D1-D6 见 `UI-REDESIGN.md`。每个阶段完成后把该阶段的 **[Win]** 项整理到本节末尾，请用户一次验证。
+计划、规格、行为差异 D1-D6 见 `UI-REDESIGN.md`。每个阶段完成后把该阶段的 **[Win]** 项整理到本节末尾，集中做一次 Windows 验证。
 
 - [x] P0 ui-snapshot 宽屏画布（2300x1190 / 1600x900 / 1280x800）与假数据（长标题、作品海报、OP / ED）
 - [x] P1 Theme token（含亮色）、字号 token、新图标集
@@ -137,7 +137,7 @@
 - [x] P4 专辑页（头部、曲目表、OP / ED 弹窗样式、信息栏）与列表页
 - [x] P5 全屏播放器三段式
 
-### 待我决定
+### 实现时的取舍
 
 - **1280 算窄窗口**：规格表写的是 W < 1280 收起右栏，但终稿 `home-1280.png`（1280x800）画的是 64 图标条加收起的右栏。
   按截图实现：W ≤ 1280 用窄布局，1281-1699 用中等布局。
@@ -312,7 +312,7 @@
 26. D5：全屏播放器在宽度 ≥ 1700 时三段式，更窄时三页签。
 27. D6：侧栏默认 248（旧设置里的默认值 210 自动换成 248），窗口 < 1700 时收成图标条，回到宽窗口恢复拖动值。
 
-遗留差异和待我决定的事项见本节上方「遗留差异」「待我决定」。
+遗留差异和实现时的取舍见本节上方「遗留差异」「实现时的取舍」。
 
 ## M4 验证清单（Windows，进行中，P0 做完后用新 preview 包）
 
@@ -387,14 +387,14 @@
 7. **M0 遗留**：中日文输入法（登录页输入框）；1 万行曲目列表滚动是否流畅；任务管理器里的内存（空闲 / 播放 / 滚动时）；
    日志里 `window shown` 的耗时（冷启动）。有 Electron 版同场景的数据更好，用来决定 D2（Slint）。
 
-## 下一次对话从这里开始
+## 接下来
 
-按 `PLAN.md`「M4 后续排序（2026-11-06 讨论）」推进，任务见下方「M4 后续（2026-11-06）」。
-验证清单不逐条跑，用户日常使用中发现问题再反馈。
+`PLAN.md`「M4 后续排序（2026-11-06）」里的项目已经做完，记录见下方「M4 后续（2026-11-06）」。
+验证清单不逐条作为发布门槛。使用中发现的问题再记到本文件。
 
 ## M4 - 对齐与打磨
 
-来源：用户反馈（2026-10-28）+ 对照 Electron 版逐项核对。P0 是用户点名的问题，先做；P1 是核对中发现的明显差异；P2 是原 M4 范围。
+来源：使用反馈（2026-10-28）+ 对照 Electron 版逐项核对。P0 是当时点名的问题，先做；P1 是核对中发现的明显差异；P2 是原 M4 范围。
 每项完成后用 ui-snapshot 检查（需要时加宽 / 窄窗口的快照）。
 
 ### M4 后续（2026-11-06）
@@ -460,7 +460,7 @@
 
 不做（2026-11-06 决定）：均衡器 / 压缩器、ReplayGain、i18n、静音按钮、全局快捷键、最小化到托盘、代码签名。
 
-### P0 - 用户反馈
+### P0 - 使用反馈
 
 #### 1. 图片清晰度（Electron 明显更清晰）
 
@@ -512,7 +512,7 @@ Electron：播放条"队列"按钮开关整个右栏；右栏里队列和歌词�
 - [x] 每组标题旁的播放 / 下一首 / 末尾按钮（`TrackSource::ArtistGroup`）
 - [x] "收藏的歌曲"区块（Electron `FAVORITE_SONGS`）
 
-#### 6. 第二轮反馈（用户看过 `5fd3e29` preview 后）
+#### 6. 第二轮反馈（`5fd3e29` preview）
 
 - [x] 字体：内嵌 Electron 版的 Inter + Noto Sans JP（`crates/app/assets/fonts`，woff2 转 TTF），`src/fonts.rs` 设为默认字体栈；
   原来每个字由系统挑字体，一行日文里混两三种字体。正文 14px，小字整体放大 1px（11 → 12、12 → 13），区块标题 20px / 800
@@ -554,19 +554,19 @@ Electron：播放条"队列"按钮开关整个右栏；右栏里队列和歌词�
 - [x] 侧栏歌单封面 36 → 48px（行高 58px）
 - [x] 正在播放的动态图标（Electron 的跳动音柱）：`PlayingBars`（`controls.slint`，三根柱子用 `animation-tick` 动画，暂停时静止；
   全局 `Playback.paused`），用在专辑 / 作品卡片角标、曲目行序号列、队列当前行、主页小行封面、聚焦卡预览列表，替换原来的静态音符图标
-- [x] 专辑页点曲目收藏，播放条心形不同步：代码路径按曲目 id 比对当前曲，没找到失败原因；加了按 `playing-id` 的兜底和 debug 日志；用户复测时又正常了，可能是偶发，再出现时看日志
+- [x] 专辑页点曲目收藏，播放条心形不同步：代码路径按曲目 id 比对当前曲，没找到失败原因；加了按 `playing-id` 的兜底和 debug 日志；复测时又正常了，可能是偶发，再出现时看日志
 - [x] 音柱对齐 Electron `PlayingIndicator` 的用法：所有专辑卡片网格（专辑页、收藏、搜索、艺人页分组、主页最近添加、编年、作品 / 系列的专辑）
   在当前曲所属专辑上显示角标（`useAlbumPlayState`，网格记住"正在播放"集合，后加载的卡片也带上）；作品 / 系列卡片按播放来源；
   角标改成 Electron `.card-badge` 样式（深色半透明圆底 + 强调色音柱）；系列详情标题前的标记；动画按 Electron 关键帧（0.9s，柱间 0.25s，暂停时都放低）
-- [x] 卡片播放动态按用户最终选择固定在封面左下角（距左 / 下各 8px），不再随多碟角标挪动；多碟角标保留右上角，文字角标保留左上角，不随播放状态移动。ui-snapshot `UI_SNAPSHOT_ONLY=badges` 覆盖单碟 / 多碟 / 文字角标、1280 / 1600 宽和浅色主题
+- [x] 卡片播放动态固定在封面左下角（距左 / 下各 8px），不再随多碟角标挪动；多碟角标保留右上角，文字角标保留左上角，不随播放状态移动。ui-snapshot `UI_SNAPSHOT_ONLY=badges` 覆盖单碟 / 多碟 / 文字角标、1280 / 1600 宽和浅色主题
 - [x] 专辑页头 / 首页横幅标题收小减重：宽 / 中 / 窄窗口分别为 72 / 56 / 44 与 64 / 52 / 44，字重 600、自然字距，封面与按钮不变；长标题字号按比例递减，不超过档位上限，文字局部偏移对齐物理像素。`UI_SNAPSHOT_ONLY=typography` 覆盖短 CJK、长日文 / 英文标题、三档窗口和浅色；Windows 字体清晰度仍需实际运行观察
 
-#### 11. 播放流走系统代理（服务器只通过 mihomo 分流的 Tailscale 访问）
+#### 11. 播放流走系统代理
 
 - [x] reqwest（API）本来就走系统代理（`system-proxy` feature）；mpv 不读 Windows 代理设置，播放流会直连。
   `os::proxy::http_proxy_for` 用和 reqwest 相同的 hyper-util 匹配器（环境变量 → 注册表 `Internet Settings`，含绕过列表），
   `MpvEngine` 每次 `load` / `append` 前设 mpv `http-proxy`。只支持 `http://` 代理，SOCKS / 带账号密码的代理不转给 mpv（记 warn 日志）
-- [ ] 验证 **[Win]**：mihomo 只开系统代理（不开 TUN），服务器地址填 tailnet 地址，登录、浏览、封面、播放、无缝切歌都正常；
+- [ ] 验证 **[Win]**：只开系统 HTTP 代理（不开 TUN）时，登录、浏览、封面、播放、无缝切歌都正常；
   关掉系统代理后播放失败，重新打开后下一首恢复。已知：API 客户端在登录时建立，启动后再开关系统代理，API 要重新登录或重启才跟上
 
 #### 12. 中文区块标题字体混排
@@ -643,7 +643,7 @@ offset 越深越慢的问题消失，全量加载 18000 首从约 19 s 降到约
 - [x] release 隐藏控制台（`windows_subsystem`），日志写 `<数据目录>/logs/032player.log`（超过 2 MB 转存 `.old.log`，panic 也记录），设置页显示版本和"打开日志文件夹"
 - [x] exe 图标和版本信息（`winresource`，`assets/icon.ico`）
 - [x] 更新提示（只提示和打开发布页，见"M4 后续" E）
-- 代码签名、i18n：不做（2026-11-06，只有用户自己用）
+- 代码签名、i18n：不做（2026-11-06）。界面保持简体中文，安装包未签名
 - [ ] M4 验证清单 **[Win]**
 
 ## M3 - 032 专属页面
@@ -687,7 +687,7 @@ offset 越深越慢的问题消失，全量加载 18000 首从约 19 s 降到约
 
 ### 3. lyrics
 
-- [x] 假名注音、罗马音（`lyrics::japanese`）：`lindera` 6.2 + 内嵌 IPADIC（用户选择内嵌，exe 增加约 48 MB，zip 后约 11 MB），
+- [x] 假名注音、罗马音（`lyrics::japanese`）：`lindera` 6.2 + 内嵌 IPADIC（当时内嵌，exe 增加约 48 MB，zip 后约 11 MB），
   `wana_kana` 转罗马音。对照 `furigana.ts`：只处理含假名的行，读音去掉送り仮名，罗马音按词加空格；只看译文时不显示。core 按行缓存结果
 
 ### 4. app
@@ -857,7 +857,7 @@ offset 越深越慢的问题消失，全量加载 18000 首从约 19 s 降到约
 - [x] 媒体 URL：`mediaToken`、`stream_url`、`image_url`（`size` 为 0 不发送）
 - [x] `lyrics(track_id)`（404 返回 `None`）
 - [x] wiremock 测试 13 条
-- [x] 用真实服务端冒烟（登录、列表、播放在用户机器上正常）
+- [x] 用真实服务端冒烟（登录、列表、播放在 Windows 上正常）
 
 ### 4. lyrics
 
@@ -871,7 +871,7 @@ offset 越深越慢的问题消失，全量加载 18000 首从约 19 s 降到约
 - [x] `build.rs`：Windows 自动下载固定版本 mpv-dev（SourceForge 永久镜像，sha256 校验），生成 `mpv.lib`，复制 `libmpv-2.dll`；`MPV_LIB_DIR` / `MPV_DEV_URL` 可覆盖
 - [x] 容器内 `cargo check --target x86_64-pc-windows-msvc` 验证下载 / 解压 / 缓存
 - [x] MSVC 链接 `mpv.lib`（由 `libmpv.dll.a` 复制而来）可用（CI 构建 app 通过）
-- [x] 实际播放（用户实测正常）
+- [x] 实际播放（Windows 上实测正常）
 - [ ] 独占模式切换（入口在 M1 设置页，随 M1 一起验证） **[Win]**
 
 ### 6. core + app
@@ -891,9 +891,9 @@ offset 越深越慢的问题消失，全量加载 18000 首从约 19 s 降到约
 - [x] 开发工具 `tools/ui-snapshot`：软件渲染出 PNG，容器内检查布局
 - [x] 打包：`.github/workflows/package.yml` 手动触发，产出便携 zip 到 Release `preview`
 - [x] release 构建保留控制台窗口（M0 收集日志；M4 打包时隐藏）
-- [x] 首次运行：mpv 初始化、播放（用户实测正常）
+- [x] 首次运行：mpv 初始化、播放（Windows 上实测正常）
 - [ ] 中日文字体显示和输入法 **[Win]**
-- [x] 封面清晰度（按缩放比例请求，用户实测清晰）
+- [x] 封面清晰度（按缩放比例请求，Windows 上实测清晰）
 - [ ] 滚动时内存、1 万行滚动流畅度 **[Win]**
 
 ### 7. 测量

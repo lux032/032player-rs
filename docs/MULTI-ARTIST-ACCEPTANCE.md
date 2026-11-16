@@ -11,7 +11,7 @@
 | `MusicBridge` | 复用多人选择器、完整刷新后缓存/队列身份更新、下载记录持久化艺人引用（DB v19） |
 | `032player-rs` | 多人引用贯穿视图、主要入口多人选择、队列元数据刷新不重建播放会话 |
 
-**用户已授权提交、推送及触发构建：Rust 正式版 v0.2.12，Android 正式版 v1.1.1（versionCode 6），服务端与刮削器推送 main 自动构建 Docker 镜像。** 构建是否成功以 GitHub Actions 为准；没有操作真实音乐文件或真实服务端数据库。
+当时发出的包：Rust 正式版 v0.2.12，Android 正式版 v1.1.1（versionCode 6）。服务端与刮削器推送 main 时由 GitHub Actions 构建 Docker 镜像。构建是否成功以 GitHub Actions 为准；没有操作真实音乐文件或真实服务端数据库。
 
 本期不做批量人工修正、不自动创建艺术家、不在线查询 MusicBrainz 猜测拆分、不修改现有 API 版本。Rust 文字署名改为 `姓名 | 姓名`，每个姓名独立跳转；右键“转到艺人”等单一入口保留多人选择器。
 
@@ -74,11 +74,6 @@ MUSICBRAINZ_ARTISTID = <person-1-uuid>; <person-2-uuid>
 - Windows 实际运行、Android 真机播放及真实曲库样本尚未验证。
 - Windows 安装包与正式签名 APK 已安排由标签触发 GitHub Actions 生成；下载状态需以 Release 页面为准。
 
-## 本地产物
+## 当时的检查产物
 
-- Android Debug APK：`/workspace/MusicBridge/app/build/outputs/apk/debug/app-debug.apk`。
-- Rust UI 截图：`/tmp/multi-artists.png`。
-- 服务端截图：`/tmp/artist-correction-1280.png`、`/tmp/artist-correction-375.png`。
-- 测试日志：`/tmp/multi-artist-server-all.log`、`/tmp/multi-artist-tagger-all.log`、`/tmp/multi-artist-rust-final.log`、`/tmp/multi-artist-clippy.log`、`/tmp/multi-artist-android-final.log`。
-
-临时目录产物不作为长期归档；代码、用例与各仓库中文说明为持久交付。
+调试 APK、界面截图和测试日志只留在当时的工作目录，不作为长期归档。代码、用例与各仓库中文说明为持久交付。
