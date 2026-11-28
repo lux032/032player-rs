@@ -341,7 +341,7 @@ export component AppWindow inherits Window {
     // Disabled on platforms whose winit backend does not support drag_resize_window (macOS).
     in-out property <bool> disable-client-resize: false;
     property <length> resize-inset: (root.window-maximized || root.disable-client-resize) ? 0px : 4px;
-    out property <length> top-bar-h: 38px;
+    out property <length> top-bar-h: root.wide ? 56px : 46px;
     callback window-drag();
     callback window-minimize();
     callback window-toggle-maximize();
@@ -2958,7 +2958,7 @@ export component AppWindow inherits Window {
         top-inset: root.top-bar-h;
     }
 
-    // Integrated 38px chrome TitleBar (Option D chassis).
+    // Integrated chrome TitleBar (Option D chassis: 56px wide/4K, 46px regular).
     title-bar := TitleBar {
         x: 0px;
         y: 0px;
@@ -2967,6 +2967,7 @@ export component AppWindow inherits Window {
         logged-in: root.logged-in;
         full-open: root.full-open;
         modal-open: root.dialog != DialogKind.none;
+        wide: root.wide;
         small: root.small;
         can-go-back: root.can-go-back;
         crumb: root.top-crumb;

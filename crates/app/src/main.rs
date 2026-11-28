@@ -305,7 +305,7 @@ fn keep_on_screen(window: &AppWindow, start_maximized: bool) {
             let scale = winit.scale_factor().max(1.0);
             let width = i32::try_from(winit.outer_size().width).unwrap_or(i32::MAX);
             #[allow(clippy::cast_possible_truncation)]
-            let title_bar_px = (38.0 * scale).round() as i32;
+            let title_bar_px = (46.0 * scale).round() as i32;
             #[allow(clippy::cast_possible_truncation)]
             let min_overlap_px = (100.0 * scale).round() as i32;
             // The 38px logical title bar strip must overlap a monitor with

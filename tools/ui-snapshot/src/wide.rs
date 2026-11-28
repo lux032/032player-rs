@@ -1525,5 +1525,13 @@ pub fn run(def: &ComponentDefinition, window: &MinimalSoftwareWindow, out: &str)
         &format!("{out}/player-short-1700.png"),
     );
     set(&inst, "full-open", Value::Bool(false));
+    set(&inst, "page", n(20.0));
+    shot(
+        &inst,
+        window,
+        &layouts,
+        PhysicalSize::new(2560, 1440),
+        &format!("{out}/home-4k150-2560.png"),
+    );
     inst.hide().unwrap();
 }

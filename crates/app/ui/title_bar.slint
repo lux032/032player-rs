@@ -6,12 +6,13 @@ component TitleNavButton inherits Rectangle {
     in property <bool> enabled: true;
     in property <bool> active: false;
     in property <bool> dimmed: false;
-    in property <length> btn-width: 26px;
-    in property <length> icon-size: 15px;
+    in property <length> btn-width: 32px;
+    in property <length> btn-height: 32px;
+    in property <length> icon-size: 17px;
     callback clicked();
     width: root.btn-width;
-    height: 26px;
-    border-radius: 7px;
+    height: root.btn-height;
+    border-radius: 8px;
     background: !root.enabled ? transparent
         : root.active ? Theme.accent-dim
         : area.pressed ? Theme.win-btn-active
@@ -40,10 +41,11 @@ component WinCaptionButton inherits Rectangle {
     in property <bool> is-close: false;
     in property <bool> dimmed: false;
     in property <bool> rounded: false;
+    in property <bool> wide: false;
     callback clicked();
-    width: 46px;
+    width: root.wide ? 56px : 48px;
     height: 100%;
-    border-radius: root.rounded ? 4px : 0px;
+    border-radius: root.rounded ? 6px : 0px;
     background: area.pressed
         ? (root.is-close ? Theme.win-close-hover.darker(15%) : Theme.win-btn-active)
         : area.has-hover
@@ -52,8 +54,8 @@ component WinCaptionButton inherits Rectangle {
 
     Icon {
         kind: root.kind;
-        width: 12px;
-        height: 12px;
+        width: root.wide ? 15px : 13.5px;
+        height: root.wide ? 15px : 13.5px;
         color: area.has-hover && root.is-close ? #ffffff
             : area.has-hover ? Theme.text
             : Theme.text-dim;
@@ -68,12 +70,13 @@ component WinCaptionButton inherits Rectangle {
     }
 }
 
-// Compact global search input hosted in the center of the custom TitleBar.
+// Unified global search input hosted in the center of the custom TitleBar.
 component TopSearchBar inherits Rectangle {
     in-out property <string> text;
     in property <string> shortcut;
     in property <bool> enabled: true;
     in property <bool> dimmed: false;
+    in property <bool> wide: false;
     out property <bool> focused: input.has-focus;
     callback edited();
     callback accepted();
@@ -86,8 +89,8 @@ component TopSearchBar inherits Rectangle {
         }
     }
 
-    height: 28px;
-    border-radius: 8px;
+    height: root.wide ? 40px : 36px;
+    border-radius: root.wide ? 12px : 10px;
     background: input.has-focus ? Theme.bg : (root.enabled && bar-hover.has-hover) ? Theme.surface-hover : Theme.raised;
     border-width: 1px;
     border-color: input.has-focus ? Theme.search-focus-border : Theme.border;
@@ -106,21 +109,26 @@ component TopSearchBar inherits Rectangle {
         }
     }
 
+    property <length> lead-x: root.wide ? 14px : 12px;
+    property <length> icon-sz: root.wide ? 18px : 16px;
+    property <length> text-x: root.wide ? 42px : 36px;
+    property <length> font-sz: root.wide ? 15px : 14px;
+
     Icon {
-        x: 10px;
+        x: root.lead-x;
         y: (parent.height - self.height) / 2;
         kind: IconKind.search;
-        width: 14px;
-        height: 14px;
+        width: root.icon-sz;
+        height: root.icon-sz;
         color: input.has-focus ? Theme.accent-text : Theme.text-faint;
     }
 
-    property <length> trailing-w: root.text != "" ? 28px
-        : (!input.has-focus && root.shortcut != "") ? kbd.width + 12px : 10px;
+    property <length> trailing-w: root.text != "" ? (root.wide ? 40px : 34px)
+        : (!input.has-focus && root.shortcut != "") ? kbd.width + 18px : 14px;
 
     editor-scope := FocusScope {
-        x: 30px;
-        width: max(40px, parent.width - 30px - root.trailing-w);
+        x: root.text-x;
+        width: max(48px, parent.width - root.text-x - root.trailing-w);
         height: parent.height;
         key-pressed(e) => {
             if e.text == Key.Escape {
@@ -134,7 +142,7 @@ component TopSearchBar inherits Rectangle {
             height: 100%;
             enabled: root.enabled;
             vertical-alignment: center;
-            font-size: 12.5px;
+            font-size: root.font-sz;
             text <=> root.text;
             color: Theme.text;
             selection-background-color: Theme.accent-dim;
@@ -149,45 +157,45 @@ component TopSearchBar inherits Rectangle {
     }
 
     if root.text == "": Text {
-        x: 30px;
-        width: max(0px, parent.width - 30px - root.trailing-w);
+        x: root.text-x;
+        width: max(0px, parent.width - root.text-x - root.trailing-w);
         height: 100%;
         text: "搜索曲库、艺人、作品...";
         font-family: Fonts.family(self.text);
         color: Theme.text-faint;
-        font-size: 12.5px;
+        font-size: root.font-sz;
         vertical-alignment: center;
         overflow: elide;
     }
 
     kbd := Rectangle {
         visible: root.text == "" && !input.has-focus && root.shortcut != "";
-        x: parent.width - self.width - 8px;
+        x: parent.width - self.width - (root.wide ? 10px : 9px);
         y: (parent.height - self.height) / 2;
-        height: 17px;
-        width: kbd-txt.preferred-width + 10px;
-        border-radius: 4px;
+        height: root.wide ? 24px : 20px;
+        width: kbd-txt.preferred-width + (root.wide ? 14px : 12px);
+        border-radius: 6px;
         border-width: 1px;
         border-color: Theme.border;
         kbd-txt := Text {
             text: root.shortcut;
             color: Theme.text-faint;
-            font-size: 10.5px;
+            font-size: root.wide ? 12px : 11px;
             font-weight: 500;
         }
     }
 
     if root.text != "": Rectangle {
-        x: parent.width - self.width - 5px;
+        x: parent.width - self.width - 6px;
         y: (parent.height - self.height) / 2;
-        width: 18px;
-        height: 18px;
-        border-radius: 9px;
+        width: root.wide ? 28px : 24px;
+        height: root.wide ? 28px : 24px;
+        border-radius: self.height / 2;
         background: clear-area.has-hover ? Theme.win-btn-hover : transparent;
         Icon {
             kind: IconKind.close;
-            width: 10px;
-            height: 10px;
+            width: root.wide ? 14px : 12px;
+            height: root.wide ? 14px : 12px;
             color: clear-area.has-hover ? Theme.text : Theme.text-faint;
         }
         clear-area := TouchArea {
@@ -202,12 +210,13 @@ component TopSearchBar inherits Rectangle {
     }
 }
 
-// Integrated 38px chrome title bar (Option D chassis).
+// Integrated chrome title bar (Option D chassis): 56px on wide / 4K windows, 46px on regular.
 export component TitleBar inherits Rectangle {
     in property <image> app-icon;
     in property <bool> logged-in: false;
     in property <bool> full-open: false;
     in property <bool> modal-open: false;
+    in property <bool> wide: false;
     in property <bool> small: false;
     in property <bool> can-go-back: false;
     in property <string> crumb;
@@ -237,16 +246,22 @@ export component TitleBar inherits Rectangle {
         top-search.focus-input();
     }
 
-    height: 38px;
+    height: root.wide ? 56px : 46px;
     background: Theme.chrome;
 
     property <bool> show-nav: root.logged-in && !root.full-open;
     property <bool> show-search: root.logged-in && !root.full-open;
     property <bool> show-panel-btn: root.logged-in && !root.full-open;
-    property <length> right-w: (root.show-panel-btn ? 45px : 0px) + 138px + root.resize-inset;
-    property <length> search-w: min(380px, max(180px, root.width - root.right-w - (root.small ? 96px : 240px)));
-    property <length> search-x: clamp(root.small ? 84px : 176px, (root.width - root.search-w) / 2, root.width - root.right-w - root.search-w - 12px);
-    property <length> left-max-w: root.show-search ? max(70px, root.search-x - 24px) : max(120px, root.width - root.right-w - 24px);
+    property <length> nav-btn-h: root.wide ? 38px : 34px;
+    property <length> nav-icon-sz: root.wide ? 20px : 18px;
+    property <length> panel-btn-w: root.wide ? 44px : 38px;
+    property <length> caption-total-w: root.wide ? 168px : 144px;
+    property <length> panel-gap: root.wide ? 10px : 8px;
+    property <length> right-w: (root.show-panel-btn ? (root.panel-btn-w + 2 * root.panel-gap + 1px) : 0px) + root.caption-total-w + root.resize-inset;
+    property <length> target-search-w: root.wide ? clamp(root.width * 0.26, 480px, 720px) : 440px;
+    property <length> search-w: min(root.target-search-w, max(220px, root.width - root.right-w - (root.small ? 116px : 280px)));
+    property <length> search-x: clamp(root.small ? 102px : 220px, (root.width - root.search-w) / 2, root.width - root.right-w - root.search-w - 16px);
+    property <length> left-max-w: root.show-search ? max(88px, root.search-x - 28px) : max(140px, root.width - root.right-w - 28px);
 
     // Local double-click window for `drag-area` only: avoids Slint's
     // window-wide click counter turning a nearby control click + blank click
@@ -319,17 +334,17 @@ export component TitleBar inherits Rectangle {
 
     // Left slot: brand mark + divider + back/collapse + lightweight breadcrumb.
     left-group := HorizontalLayout {
-        x: 14px;
+        x: root.wide ? 20px : 16px;
         y: 0px;
         width: min(self.preferred-width, root.left-max-w);
         height: parent.height;
-        spacing: 8px;
+        spacing: root.wide ? 12px : 10px;
         alignment: start;
 
         Image {
             source: root.app-icon;
-            width: 16px;
-            height: 16px;
+            width: root.wide ? 24px : 20px;
+            height: root.wide ? 24px : 20px;
             y: (parent.height - self.height) / 2;
             image-fit: ImageFit.contain;
             opacity: root.window-active ? 1.0 : 0.55;
@@ -338,7 +353,7 @@ export component TitleBar inherits Rectangle {
         if !root.small || !root.logged-in: Text {
             text: "032player";
             color: Theme.text-dim;
-            font-size: 12.5px;
+            font-size: root.wide ? 15.5px : 14px;
             font-weight: 600;
             vertical-alignment: center;
             opacity: root.window-active ? 1.0 : 0.55;
@@ -346,13 +361,16 @@ export component TitleBar inherits Rectangle {
 
         if root.logged-in: Rectangle {
             width: 1px;
-            height: 14px;
+            height: root.wide ? 18px : 16px;
             y: (parent.height - self.height) / 2;
             background: Theme.border;
         }
 
         if root.show-nav: TitleNavButton {
             y: (parent.height - self.height) / 2;
+            btn-width: root.nav-btn-h;
+            btn-height: root.nav-btn-h;
+            icon-size: root.nav-icon-sz;
             kind: IconKind.back;
             enabled: root.can-go-back && !root.modal-open;
             dimmed: !root.window-active;
@@ -363,6 +381,9 @@ export component TitleBar inherits Rectangle {
 
         if root.logged-in && root.full-open: TitleNavButton {
             y: (parent.height - self.height) / 2;
+            btn-width: root.nav-btn-h;
+            btn-height: root.nav-btn-h;
+            icon-size: root.nav-icon-sz;
             kind: IconKind.chevron-down;
             enabled: !root.modal-open;
             dimmed: !root.window-active;
@@ -375,7 +396,7 @@ export component TitleBar inherits Rectangle {
             text: root.crumb;
             font-family: Fonts.family(self.text);
             color: Theme.text-faint;
-            font-size: 12px;
+            font-size: root.wide ? 14.5px : 13.5px;
             font-weight: 500;
             vertical-alignment: center;
             overflow: elide;
@@ -389,6 +410,7 @@ export component TitleBar inherits Rectangle {
     top-search := TopSearchBar {
         visible: root.show-search;
         enabled: !root.modal-open;
+        wide: root.wide;
         x: root.search-x;
         y: (parent.height - self.height) / 2;
         width: root.search-w;
@@ -422,11 +444,13 @@ export component TitleBar inherits Rectangle {
         alignment: end;
 
         if root.show-panel-btn: HorizontalLayout {
-            padding-right: 6px;
-            spacing: 6px;
+            padding-right: root.panel-gap;
+            spacing: root.panel-gap;
             TitleNavButton {
                 y: (parent.height - self.height) / 2;
-                btn-width: 32px;
+                btn-width: root.panel-btn-w;
+                btn-height: root.nav-btn-h;
+                icon-size: root.nav-icon-sz;
                 kind: IconKind.panel-right;
                 enabled: !root.modal-open;
                 active: root.panel-open;
@@ -437,7 +461,7 @@ export component TitleBar inherits Rectangle {
             }
             Rectangle {
                 width: 1px;
-                height: 14px;
+                height: root.wide ? 18px : 16px;
                 y: (parent.height - self.height) / 2;
                 background: Theme.border;
             }
@@ -451,6 +475,7 @@ export component TitleBar inherits Rectangle {
                 kind: IconKind.win-min;
                 dimmed: !root.window-active;
                 rounded: root.resize-inset > 0px;
+                wide: root.wide;
                 clicked => {
                     root.window-minimize();
                 }
@@ -459,6 +484,7 @@ export component TitleBar inherits Rectangle {
                 kind: root.window-maximized ? IconKind.win-restore : IconKind.win-max;
                 dimmed: !root.window-active;
                 rounded: root.resize-inset > 0px;
+                wide: root.wide;
                 clicked => {
                     root.window-toggle-maximize();
                 }
@@ -468,6 +494,7 @@ export component TitleBar inherits Rectangle {
                 is-close: true;
                 dimmed: !root.window-active;
                 rounded: root.resize-inset > 0px;
+                wide: root.wide;
                 clicked => {
                     root.window-close();
                 }

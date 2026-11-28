@@ -17,7 +17,7 @@
 **目标：**
 
 - 在 `crates/app` 内以零 `unsafe` 方式落地 **方案 D（一体外壳画布）**，覆盖主页、列表页、详情页、搜索页、设置页、全屏播放器、窄屏 1280 及登录页全部场景，同时支持 032 Dark / 032 Light 与跟随系统主题。
-- 收敛全局搜索、返回导航与右栏开关到 `38px` 顶壳，彻底移除重复搜索框与悬浮遮挡按钮，同时保持现有快捷键、搜索防抖、历史滚动恢复、拖拽调整栏宽、关闭到托盘与单实例激活全部行为不退化。
+- 收敛全局搜索、返回导航与右栏开关到顶壳（宽屏/4K `56px` / 常规 `46px`），彻底移除重复搜索框与悬浮遮挡按钮，同时保持现有快捷键、搜索防抖、历史滚动恢复、拖拽调整栏宽、关闭到托盘与单实例激活全部行为不退化。
 - 在 Windows 11 上通过 `winit 0.30` 的 `WindowExtWindows` 安全 API 同步原生圆角、外框着色与阴影，并在 Windows 10 / Linux / macOS 与 `tools/ui-snapshot` 上平滑工作。
 
 **非目标：**
@@ -49,10 +49,10 @@
 AppWindow (no-frame: true, resize-border-width: 6px, background: Theme.chrome)
 +-- outer-frame (1px inner/outer border when !window-maximized, 0px when maximized)
     +-- VerticalLayout
-        +-- TitleBar (height: 38px, background: Theme.chrome, z-order above modals)
-        |   +-- Left:  [16px icon] ["032player" when !small] [| < crumb when logged-in & !full]
+        +-- TitleBar (height: 56px wide/4K / 46px regular, background: Theme.chrome, z-order above modals)
+        |   +-- Left:  [20-24px icon] ["032player" when !small] [| < crumb when logged-in & !full]
         |   |          (or [| v "正在播放 · <title>"] when full-open)
-        |   +-- Mid:   [TopSearchBar max 380px when logged-in & !full] (surrounded by drag area)
+        |   +-- Mid:   [TopSearchBar 40x720px wide/4K / 36x440px regular when logged-in & !full] (surrounded by drag area)
         |   +-- Right: [PanelToggleBtn | when logged-in & !full] [Min] [Max/Restore] [Close]
         +-- body-slot (vertical-stretch: 1, background: Theme.chrome)
             +-- LoginView / restoring: padded 8px left/right/bottom -> rounded 10px Theme.bg pane
@@ -76,7 +76,7 @@ AppWindow (no-frame: true, resize-border-width: 6px, background: Theme.chrome)
 
 关键联动修正：
 
-- `np-art-side` 与 `FullScreenPlayer` 高度计算必须扣除 `top-bar-h`（`38px`），避免右栏封面或全屏三栏纵向被压缩溢出。
+- `np-art-side` 与 `FullScreenPlayer` 高度计算必须扣除 `top-bar-h`（宽屏/4K `56px` / 常规 `46px`），避免右栏封面或全屏三栏纵向被压缩溢出。
 - 侧栏与主画布之间、主画布与右栏画布之间的 `8px` 缝隙同时承担宽度拖拽热区（`wide` 宽屏下 `col-resize`），悬停时在缝隙正中浮现 `2px` `Theme.accent` 柔和提示条，不再侵占内容区像素。
 - 路径提示（`crumb`）直接由 Slint 响应式属性从 `root.full-open`、`root.page`、`root.detail.kind`、`root.detail.title`、`root.np-title` 派生，避免在 Rust 多处路由回调里重复拼接同步。
 - 顶壳拖拽与双击实现：在 `TitleBar` 底层铺满一个 `TouchArea`（置于左右中交互控件之下），单击按下调用 `window-drag()`，双击调用 `window-toggle-maximize()`；左右中各按钮和搜索输入框置于上层自然拦截点击，不触发误拖。注意 Slint 的 `TouchArea` 在收到 `down` 时若立刻调用 `drag_window()`，系统移动循环会接管鼠标导致 `double-clicked` 收不到 - 因此需采用**轻量移动阈值（如 4px）或原生双事件兼容策略**：
@@ -84,7 +84,7 @@ AppWindow (no-frame: true, resize-border-width: 6px, background: Theme.chrome)
 
 ### 决策 3：全局搜索框收进顶壳并消除双搜索框
 
-- 在 `TitleBar` 中部放置 `TopSearchBar`（高度 `28px`、圆角 `8px`、最大宽度 `380px`，绑定 `SearchState.query-input`）：
+- 在 `TitleBar` 中部放置 `TopSearchBar`（高度宽屏/4K `40px` / 常规 `36px`、圆角 `12px / 10px`、最大宽度宽屏/4K `720px` / 常规 `440px`，绑定 `SearchState.query-input`）：
   - 未聚焦且为空时显示搜索图标 + 占位文案 `搜索曲库、艺人、作品...` + 快捷键徽章 `root.search-shortcut`（如 `Ctrl+K`）。
   - 聚焦或非空时显示高亮边框（`Theme.accent` 55% alpha + 外晕）、`TextInput` 编辑区以及右侧清空按钮 `x`。
   - 交互流程：

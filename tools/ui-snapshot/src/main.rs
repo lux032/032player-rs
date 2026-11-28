@@ -734,16 +734,16 @@ fn lyrics_return_regression(
 
     // Clicking the return pill hides it (returns to active line).
     // At 1920x1080, lyrics column spans x ~ 710..1420 (center ~ 1065),
-    // y = top-bar-h (38) + lyrics-y (74) + 12 + 15 = 139.
+    // y = top-bar-h (56) + lyrics-y (74) + 12 + 15 = 157.
     window.dispatch_event(WindowEvent::PointerMoved {
-        position: LogicalPosition::new(1065.0, 139.0),
+        position: LogicalPosition::new(1065.0, 157.0),
     });
     window.dispatch_event(WindowEvent::PointerPressed {
-        position: LogicalPosition::new(1065.0, 139.0),
+        position: LogicalPosition::new(1065.0, 157.0),
         button: PointerEventButton::Left,
     });
     window.dispatch_event(WindowEvent::PointerReleased {
-        position: LogicalPosition::new(1065.0, 139.0),
+        position: LogicalPosition::new(1065.0, 157.0),
         button: PointerEventButton::Left,
     });
     // Advance past the 160ms opacity fade-out and 380ms scroll animation.
@@ -828,17 +828,17 @@ fn fullscreen_queue_regression(
         release(position);
     };
 
-    click(655.0, 221.0);
-    click(1187.0, 349.0);
-    let from = LogicalPosition::new(750.0, 413.0);
-    let to = LogicalPosition::new(750.0, 477.0);
+    click(655.0, 229.0);
+    click(1187.0, 357.0);
+    let from = LogicalPosition::new(750.0, 421.0);
+    let to = LogicalPosition::new(750.0, 485.0);
     move_to(from);
     press(from);
     move_to(to);
     release(to);
     set(&inst, "queue-search", s("YOASOBI"));
     settle(window);
-    click(1089.0, 161.0);
+    click(1089.0, 169.0);
     assert_eq!(
         actions.borrow().as_slice(),
         &[
@@ -861,7 +861,7 @@ fn fullscreen_queue_regression(
     // Pick the cover one row below center, since the current cover isn't clickable.
     let assert_visible = |uid: f64, message| {
         actions.borrow_mut().clear();
-        click(655.0, 522.0);
+        click(655.0, 526.0);
         assert_eq!(
             actions.borrow().as_slice(),
             &[("play-queue-item", vec![n(uid)])],
@@ -995,14 +995,14 @@ fn album_artist_regression(
     .unwrap();
 
     render(window, size, &format!("{out}/album-artist-links.png"));
-    click(590.0, 499.0, left);
-    click(677.0, 499.0, left);
-    move_to(729.0, 499.0);
+    click(590.0, 507.0, left);
+    click(677.0, 507.0, left);
+    move_to(729.0, 507.0);
     render(window, size, &format!("{out}/album-artist-hover.png"));
-    click(690.0, 627.0, left);
-    click(118.0, 288.0, left);
-    click(122.0, 475.0, left);
-    click(276.0, 419.0, left);
+    click(690.0, 635.0, left);
+    click(118.0, 296.0, left);
+    click(122.0, 483.0, left);
+    click(276.0, 427.0, left);
     assert_eq!(
         hits.borrow().as_slice(),
         &[
@@ -1016,9 +1016,9 @@ fn album_artist_regression(
         "Album card links, hover popup, cover, title and play button"
     );
     hits.borrow_mut().clear();
-    click(118.0, 499.0, PointerEventButton::Right);
+    click(118.0, 507.0, PointerEventButton::Right);
     render(window, size, &format!("{out}/album-artist-menu.png"));
-    click(170.0, 734.0, left);
+    click(170.0, 742.0, left);
     assert_eq!(
         hits.borrow_mut().pop(),
         Some(("albums".into(), "artists".into(), 0, 5)),
@@ -1071,15 +1071,15 @@ fn album_artist_regression(
     set_g(&inst, "Home", "chronicle", album_rows_n(1, 1));
     let home_size = PhysicalSize::new(1280, 1320);
     render(window, home_size, &format!("{out}/home-artist-links.png"));
-    click(397.0, 206.0, left);
-    click(504.0, 206.0, left);
+    click(397.0, 214.0, left);
+    click(504.0, 214.0, left);
     assert_eq!(*routes.borrow(), vec![(11, 5), (11, 6)], "Spotlight links");
 
-    click(840.0, 612.0, left);
-    move_to(1210.0, 612.0);
+    click(840.0, 620.0, left);
+    move_to(1210.0, 620.0);
     render(window, home_size, &format!("{out}/home-artist-hover.png"));
-    click(1190.0, 708.0, left);
-    click(124.0, 1212.0, left);
+    click(1190.0, 716.0, left);
+    click(124.0, 1220.0, left);
     assert_eq!(
         hits.borrow().as_slice(),
         &[
@@ -1159,7 +1159,7 @@ fn main() {
         })
         .unwrap();
         for x in [570.0, 640.0, 685.0] {
-            let position = slint::LogicalPosition::new(x, 305.0);
+            let position = slint::LogicalPosition::new(x, 313.0);
             let button = slint::platform::PointerEventButton::Left;
             window.dispatch_event(slint::platform::WindowEvent::PointerMoved { position });
             window
