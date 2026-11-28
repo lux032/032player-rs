@@ -224,7 +224,7 @@ checksum = "940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000"
 
 [[package]]
 name = "api"
-version = "0.2.35"
+version = "0.2.36"
 dependencies = [
  "reqwest",
  "rustls",
@@ -238,7 +238,7 @@ dependencies = [
 
 [[package]]
 name = "app"
-version = "0.2.35"
+version = "0.2.36"
 dependencies = [
  "app-ui",
  "client-core",
@@ -319,7 +319,7 @@ dependencies = [
 
 [[package]]
 name = "asio"
-version = "0.2.35"
+version = "0.2.36"
 dependencies = [
  "thiserror 2.0.21",
  "tracing",
@@ -841,7 +841,7 @@ dependencies = [
 
 [[package]]
 name = "client-core"
-version = "0.2.35"
+version = "0.2.36"
 dependencies = [
  "api",
  "bytes",
@@ -3161,7 +3161,7 @@ dependencies = [
 
 [[package]]
 name = "lyrics"
-version = "0.2.35"
+version = "0.2.36"
 
 [[package]]
 name = "lzma-rust2"
@@ -3916,7 +3916,7 @@ dependencies = [
 
 [[package]]
 name = "os"
-version = "0.2.35"
+version = "0.2.36"
 dependencies = [
  "http",
  "hyper-util",
@@ -4142,7 +4142,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "player"
-version = "0.2.35"
+version = "0.2.36"
 dependencies = [
  "asio",
  "libmpv2",
@@ -4907,7 +4907,7 @@ dependencies = [
 
 [[package]]
 name = "session"
-version = "0.2.35"
+version = "0.2.36"
 dependencies = [
  "serde",
  "serde_json",
@@ -5220,7 +5220,7 @@ dependencies = [
 
 [[package]]
 name = "sonos"
-version = "0.2.35"
+version = "0.2.36"
 dependencies = [
  "if-addrs",
  "reqwest",

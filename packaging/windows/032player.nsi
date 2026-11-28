@@ -1,6 +1,6 @@
 ; Native NSIS equivalent of 032player.iss for local Linux / macOS builds.
 ; Example:
-;   makensis -DAppVersion=0.2.35 -DSourceDir=/absolute/release \
+;   makensis -DAppVersion=0.2.36 -DSourceDir=/absolute/release \
 ;     -DOutputDir=/absolute/dist packaging/windows/032player.nsi
 
 Unicode true
