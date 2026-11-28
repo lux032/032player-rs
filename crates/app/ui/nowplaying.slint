@@ -131,23 +131,25 @@ export component NowPlayingPanel inherits Rectangle {
     callback open-album();
     callback open-artist(int);
     callback open-full();
+    callback interacted();
     out property <length> pane-width: pane.width;
     out property <length> pane-height: pane.height;
     background: Theme.panel;
-    drop-shadow-blur: root.floating ? 32px : 0px;
-    drop-shadow-color: #00000080;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
 
     // Keep clicks and wheel events away from the page underneath.
     TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                root.interacted();
+            }
+        }
         scroll-event(e) => {
             return accept;
         }
-    }
-
-    Rectangle {
-        x: 0;
-        width: 1px;
-        background: Theme.border;
     }
 
     VerticalLayout {

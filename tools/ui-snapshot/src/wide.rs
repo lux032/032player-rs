@@ -1458,10 +1458,41 @@ pub fn run(def: &ComponentDefinition, window: &MinimalSoftwareWindow, out: &str)
         PhysicalSize::new(2300, 1190),
         &format!("{out}/home-nopanel-2300.png"),
     );
+    set(&inst, "page", n(0.0));
+    shot(
+        &inst,
+        window,
+        &layouts,
+        PhysicalSize::new(1600, 900),
+        &format!("{out}/albums-nopanel-1600.png"),
+    );
     set(&inst, "panel-open", Value::Bool(true));
+
+    // Focused TopSearchBar on Search page (Option D chassis).
+    set_g(&inst, "SearchState", "query-input", s("キタニタツヤ"));
+    set_g(&inst, "SearchState", "active-query", s("キタニタツヤ"));
+    set(&inst, "page", n(6.0));
+    let _ = inst.invoke("focus-top-search", &[]);
+    shot(
+        &inst,
+        window,
+        &layouts,
+        PhysicalSize::new(1600, 900),
+        &format!("{out}/search-focused-1600.png"),
+    );
+    set_g(&inst, "SearchState", "query-input", s(""));
+    set_g(&inst, "SearchState", "active-query", s(""));
+    set(&inst, "page", n(20.0));
 
     // 032 Light.
     set(&inst, "theme-mode", n(2.0));
+    shot(
+        &inst,
+        window,
+        &layouts,
+        PhysicalSize::new(1600, 900),
+        &format!("{out}/light-home-1600.png"),
+    );
     shot(
         &inst,
         window,
@@ -1485,7 +1516,14 @@ pub fn run(def: &ComponentDefinition, window: &MinimalSoftwareWindow, out: &str)
         PhysicalSize::new(2300, 1190),
         &format!("{out}/light-player-2300.png"),
     );
-    set(&inst, "full-open", Value::Bool(false));
     set(&inst, "theme-mode", n(1.0));
+    shot(
+        &inst,
+        window,
+        &layouts,
+        PhysicalSize::new(1700, 600),
+        &format!("{out}/player-short-1700.png"),
+    );
+    set(&inst, "full-open", Value::Bool(false));
     inst.hide().unwrap();
 }

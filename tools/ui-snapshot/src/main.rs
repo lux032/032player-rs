@@ -733,16 +733,17 @@ fn lyrics_return_regression(
     render(window, wide, &format!("{out}/lyrics-return-wide.png"));
 
     // Clicking the return pill hides it (returns to active line).
-    // At 1920x1080, lyrics column spans x ~ 710..1420 (center ~ 1065), y = 100 + 12 + 15 = 127.
+    // At 1920x1080, lyrics column spans x ~ 710..1420 (center ~ 1065),
+    // y = top-bar-h (38) + lyrics-y (74) + 12 + 15 = 139.
     window.dispatch_event(WindowEvent::PointerMoved {
-        position: LogicalPosition::new(1065.0, 127.0),
+        position: LogicalPosition::new(1065.0, 139.0),
     });
     window.dispatch_event(WindowEvent::PointerPressed {
-        position: LogicalPosition::new(1065.0, 127.0),
+        position: LogicalPosition::new(1065.0, 139.0),
         button: PointerEventButton::Left,
     });
     window.dispatch_event(WindowEvent::PointerReleased {
-        position: LogicalPosition::new(1065.0, 127.0),
+        position: LogicalPosition::new(1065.0, 139.0),
         button: PointerEventButton::Left,
     });
     // Advance past the 160ms opacity fade-out and 380ms scroll animation.
@@ -827,17 +828,17 @@ fn fullscreen_queue_regression(
         release(position);
     };
 
-    click(654.0, 183.0);
-    click(1195.0, 311.0);
-    let from = LogicalPosition::new(750.0, 375.0);
-    let to = LogicalPosition::new(750.0, 439.0);
+    click(655.0, 221.0);
+    click(1187.0, 349.0);
+    let from = LogicalPosition::new(750.0, 413.0);
+    let to = LogicalPosition::new(750.0, 477.0);
     move_to(from);
     press(from);
     move_to(to);
     release(to);
     set(&inst, "queue-search", s("YOASOBI"));
     settle(window);
-    click(1097.0, 123.0);
+    click(1089.0, 161.0);
     assert_eq!(
         actions.borrow().as_slice(),
         &[
@@ -860,7 +861,7 @@ fn fullscreen_queue_regression(
     // Pick the cover one row below center, since the current cover isn't clickable.
     let assert_visible = |uid: f64, message| {
         actions.borrow_mut().clear();
-        click(654.0, 503.0);
+        click(655.0, 522.0);
         assert_eq!(
             actions.borrow().as_slice(),
             &[("play-queue-item", vec![n(uid)])],
@@ -994,14 +995,14 @@ fn album_artist_regression(
     .unwrap();
 
     render(window, size, &format!("{out}/album-artist-links.png"));
-    click(590.0, 465.0, left);
-    click(677.0, 465.0, left);
-    move_to(729.0, 465.0);
+    click(590.0, 499.0, left);
+    click(677.0, 499.0, left);
+    move_to(729.0, 499.0);
     render(window, size, &format!("{out}/album-artist-hover.png"));
-    click(690.0, 593.0, left);
-    click(110.0, 250.0, left);
-    click(114.0, 441.0, left);
-    click(272.0, 385.0, left);
+    click(690.0, 627.0, left);
+    click(118.0, 288.0, left);
+    click(122.0, 475.0, left);
+    click(276.0, 419.0, left);
     assert_eq!(
         hits.borrow().as_slice(),
         &[
@@ -1015,9 +1016,9 @@ fn album_artist_regression(
         "Album card links, hover popup, cover, title and play button"
     );
     hits.borrow_mut().clear();
-    click(110.0, 465.0, PointerEventButton::Right);
+    click(118.0, 499.0, PointerEventButton::Right);
     render(window, size, &format!("{out}/album-artist-menu.png"));
-    click(170.0, 700.0, left);
+    click(170.0, 734.0, left);
     assert_eq!(
         hits.borrow_mut().pop(),
         Some(("albums".into(), "artists".into(), 0, 5)),
@@ -1070,15 +1071,15 @@ fn album_artist_regression(
     set_g(&inst, "Home", "chronicle", album_rows_n(1, 1));
     let home_size = PhysicalSize::new(1280, 1320);
     render(window, home_size, &format!("{out}/home-artist-links.png"));
-    click(389.0, 168.0, left);
-    click(496.0, 168.0, left);
+    click(397.0, 206.0, left);
+    click(504.0, 206.0, left);
     assert_eq!(*routes.borrow(), vec![(11, 5), (11, 6)], "Spotlight links");
 
-    click(836.0, 579.0, left);
-    move_to(1216.0, 579.0);
+    click(840.0, 612.0, left);
+    move_to(1210.0, 612.0);
     render(window, home_size, &format!("{out}/home-artist-hover.png"));
-    click(1200.0, 675.0, left);
-    click(116.0, 1179.0, left);
+    click(1190.0, 708.0, left);
+    click(124.0, 1212.0, left);
     assert_eq!(
         hits.borrow().as_slice(),
         &[
@@ -1158,7 +1159,7 @@ fn main() {
         })
         .unwrap();
         for x in [570.0, 640.0, 685.0] {
-            let position = slint::LogicalPosition::new(x, 267.0);
+            let position = slint::LogicalPosition::new(x, 305.0);
             let button = slint::platform::PointerEventButton::Left;
             window.dispatch_event(slint::platform::WindowEvent::PointerMoved { position });
             window
@@ -1218,6 +1219,14 @@ fn main() {
         key();
         assert_eq!(hits.get(), 1, "Space must reach the window shortcut scope");
         set(&inst, "page", n(6.0));
+        set(&inst, "can-go-back", Value::Bool(true));
+        let backs = std::rc::Rc::new(std::cell::Cell::new(0));
+        let b = backs.clone();
+        inst.set_callback("go-back", move |_| {
+            b.set(b.get() + 1);
+            Value::Void
+        })
+        .unwrap();
         render(&window, size, &format!("{out}/keyboard-search-test.png"));
         key();
         assert_eq!(
@@ -1225,6 +1234,54 @@ fn main() {
             1,
             "Typing Space in search must not trigger playback"
         );
+        // With active input text, holding Escape must only unfocus on the
+        // initial press and ignore key-repeat events instead of going back.
+        set_g(&inst, "SearchState", "query-input", s("YOASOBI"));
+        window.dispatch_event(slint::platform::WindowEvent::KeyPressed {
+            text: slint::platform::Key::Escape.into(),
+        });
+        window.dispatch_event(slint::platform::WindowEvent::KeyPressRepeated {
+            text: slint::platform::Key::Escape.into(),
+        });
+        window.dispatch_event(slint::platform::WindowEvent::KeyReleased {
+            text: slint::platform::Key::Escape.into(),
+        });
+        assert_eq!(
+            backs.get(),
+            0,
+            "Holding Escape from TopSearchBar with text must not trigger go-back"
+        );
+        key();
+        assert_eq!(
+            hits.get(),
+            2,
+            "Escape from TopSearchBar must return focus to shortcut-scope"
+        );
+        inst.invoke("focus-top-search", &[]).unwrap();
+        key();
+        assert_eq!(
+            hits.get(),
+            2,
+            "focus-top-search must focus TopSearchBar and capture Space"
+        );
+        // Clicking the bottom player bar must return focus to shortcut-scope.
+        let pos = slint::LogicalPosition::new(640.0, 760.0);
+        window.dispatch_event(slint::platform::WindowEvent::PointerMoved { position: pos });
+        window.dispatch_event(slint::platform::WindowEvent::PointerPressed {
+            position: pos,
+            button: slint::platform::PointerEventButton::Left,
+        });
+        window.dispatch_event(slint::platform::WindowEvent::PointerReleased {
+            position: pos,
+            button: slint::platform::PointerEventButton::Left,
+        });
+        key();
+        assert_eq!(
+            hits.get(),
+            3,
+            "Clicking outside TopSearchBar must restore Space playback shortcut"
+        );
+        inst.invoke("focus-top-search", &[]).unwrap();
         let captures = std::rc::Rc::new(std::cell::Cell::new(0));
         let c = captures.clone();
         inst.set_callback("capture-shortcut", move |_| {
@@ -1239,7 +1296,9 @@ fn main() {
             1,
             "Recording must intercept keys before focused editors"
         );
-        assert_eq!(hits.get(), 1);
+        assert_eq!(hits.get(), 3);
+        set(&inst, "can-go-back", Value::Bool(false));
+        inst.set_callback("go-back", |_| Value::Void).unwrap();
         set(&inst, "recording-shortcut", n(-1.0));
         inst.set_callback("shortcut-key", |_| Value::Bool(false))
             .unwrap();

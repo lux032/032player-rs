@@ -11,6 +11,7 @@ mod engine;
 mod fonts;
 mod system;
 mod ui;
+mod window_chrome;
 
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
@@ -122,9 +123,10 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     };
 
+    let settings = Settings::load(&data_dir);
     // The font collection belongs to the platform: select it first, then
     // register the bundled fonts before any text is measured.
-    slint::BackendSelector::new().select()?;
+    window_chrome::backend_selector(settings.theme, settings.window.maximized).select()?;
     fonts::register();
     let window = AppWindow::new()?;
     window
@@ -152,7 +154,6 @@ fn main() -> Result<(), slint::PlatformError> {
     window
         .global::<ArtistLayout>()
         .on_cap_width(|text, size, max_w| fonts::text_width(&text, size, 400).min(max_w));
-    let settings = Settings::load(&data_dir);
     let player_options = player::PlayerOptions {
         audio_device: settings.audio_device.clone(),
         exclusive: settings.exclusive,
@@ -268,11 +269,12 @@ fn main() -> Result<(), slint::PlatformError> {
             .set_position(slint::PhysicalPosition::new(x, y));
     }
     window.show()?;
-    if settings.window.maximized {
-        window.window().set_maximized(true);
-    }
+    window_chrome::install(&window);
     if restored.is_some() {
-        keep_on_screen(&window);
+        keep_on_screen(&window, settings.window.maximized);
+    } else if settings.window.maximized {
+        window.window().set_maximized(true);
+        window_chrome::sync(&window);
     }
     system::install(&window, core.commander());
     // Runs until quit (closing may only hide the window to the tray).
@@ -288,9 +290,10 @@ fn main() -> Result<(), slint::PlatformError> {
     Ok(())
 }
 
-/// Moves the window back onto a monitor when its restored position is off
-/// every screen (e.g. it was last closed on a monitor that is now gone).
-fn keep_on_screen(window: &AppWindow) {
+/// Moves the normal (unmaximized) window back onto a monitor when its restored
+/// position is off every screen (e.g. it was last closed on a monitor that is
+/// now gone), then applies `start_maximized` if saved.
+fn keep_on_screen(window: &AppWindow, start_maximized: bool) {
     use slint::winit_030::{WinitWindowAccessor, winit};
     let weak = window.as_weak();
     let task = slint::spawn_local(async move {
@@ -298,53 +301,55 @@ fn keep_on_screen(window: &AppWindow) {
         let Ok(winit) = w.window().winit_window().await else {
             return;
         };
-        let Ok(pos) = winit.outer_position() else {
-            return;
-        };
-        let width = i32::try_from(winit.outer_size().width).unwrap_or(i32::MAX);
-        // The title bar must be reachable: the top strip overlaps a monitor
-        // by at least 100 px horizontally.
-        let reachable = winit.available_monitors().any(|m| {
-            let (mp, ms) = (m.position(), m.size());
-            let (mw, mh) = (
-                i32::try_from(ms.width).unwrap_or(i32::MAX),
-                i32::try_from(ms.height).unwrap_or(i32::MAX),
-            );
-            let top = pos.y + 8;
-            let overlap = (pos.x + width).min(mp.x + mw) - pos.x.max(mp.x);
-            top >= mp.y && top < mp.y + mh && overlap >= 100
-        });
-        if reachable {
-            return;
+        if let Ok(pos) = winit.outer_position() {
+            let scale = winit.scale_factor().max(1.0);
+            let width = i32::try_from(winit.outer_size().width).unwrap_or(i32::MAX);
+            #[allow(clippy::cast_possible_truncation)]
+            let title_bar_px = (38.0 * scale).round() as i32;
+            #[allow(clippy::cast_possible_truncation)]
+            let min_overlap_px = (100.0 * scale).round() as i32;
+            // The 38px logical title bar strip must overlap a monitor with
+            // enough room to drag (leaving headroom for a top taskbar/panel).
+            let reachable = winit.available_monitors().any(|m| {
+                let (mp, ms) = (m.position(), m.size());
+                let (mw, mh) = (
+                    i32::try_from(ms.width).unwrap_or(i32::MAX),
+                    i32::try_from(ms.height).unwrap_or(i32::MAX),
+                );
+                let top_visible = pos.y + title_bar_px > mp.y && pos.y < mp.y + mh;
+                let overlap = (pos.x + width).min(mp.x + mw) - pos.x.max(mp.x);
+                top_visible && overlap >= min_overlap_px
+            });
+            if !reachable
+                && let Some(monitor) = winit
+                    .primary_monitor()
+                    .or_else(|| winit.available_monitors().next())
+            {
+                let (mp, ms, size) = (monitor.position(), monitor.size(), winit.outer_size());
+                let center = |origin: i32, total: u32, own: u32| {
+                    origin + i32::try_from(total.saturating_sub(own) / 2).unwrap_or(0)
+                };
+                tracing::info!(
+                    x = pos.x,
+                    y = pos.y,
+                    "window was off screen, moving it back"
+                );
+                winit.set_outer_position(winit::dpi::PhysicalPosition::new(
+                    center(mp.x, ms.width, size.width),
+                    center(mp.y, ms.height, size.height),
+                ));
+            }
         }
-        let Some(monitor) = winit
-            .primary_monitor()
-            .or_else(|| winit.available_monitors().next())
-        else {
-            return;
-        };
-        let (mp, ms, size) = (monitor.position(), monitor.size(), winit.outer_size());
-        let center = |origin: i32, total: u32, own: u32| {
-            origin + i32::try_from(total.saturating_sub(own) / 2).unwrap_or(0)
-        };
-        tracing::info!(
-            x = pos.x,
-            y = pos.y,
-            "window was off screen, moving it back"
-        );
-        let maximized = winit.is_maximized();
-        if maximized {
-            winit.set_maximized(false);
-        }
-        winit.set_outer_position(winit::dpi::PhysicalPosition::new(
-            center(mp.x, ms.width, size.width),
-            center(mp.y, ms.height, size.height),
-        ));
-        if maximized {
+        if start_maximized {
             winit.set_maximized(true);
         }
+        window_chrome::sync(&w);
     });
     if let Err(e) = task {
         tracing::warn!("cannot check the window position: {e}");
+        if start_maximized {
+            window.window().set_maximized(true);
+            window_chrome::sync(window);
+        }
     }
 }

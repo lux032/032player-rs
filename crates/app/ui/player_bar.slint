@@ -337,6 +337,7 @@ export component PlayerBar inherits Rectangle {
     // The cover and the expand button open / close the full-screen player.
     in property <bool> full-open;
     callback toggle-full();
+    callback interacted();
     property <length> pad: root.tier == 2 ? 24px : root.tier == 1 ? 16px : 14px;
     // Center column; narrow windows keep about 560px for the sides.
     property <length> center-w: max(300px, min(root.tier == 2 ? 820px : root.tier == 1 ? 600px : 480px, root.width - 2 * root.pad - 32px - 560px));
@@ -347,10 +348,12 @@ export component PlayerBar inherits Rectangle {
     height: root.tier == 2 ? 92px : root.tier == 1 ? 84px : 80px;
     background: Theme.chrome;
 
-    Rectangle {
-        y: 0;
-        height: 1px;
-        background: Theme.border;
+    TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                root.interacted();
+            }
+        }
     }
 
     HorizontalLayout {

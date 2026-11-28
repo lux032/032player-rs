@@ -7,6 +7,7 @@ import {
     ContextMenuOverlay, ContextMenuState,
 } from "views.slint";
 import { PlayerBar } from "player_bar.slint";
+import { TitleBar } from "title_bar.slint";
 import {
     ListQuery, DetailInfo, ListToolbar, PageHeader, CardRows, DetailHeader, ArtistHeader, PromptDialog,
     ConfirmDialog, ReleaseGroupRow, CreditRoleTab, AlbumWorkRow, WorkUseRow, PersonRow, FactRow,
@@ -323,14 +324,38 @@ component ArtistTracksSection inherits VerticalLayout {
 export component AppWindow inherits Window {
     title: "032player";
     icon: @image-url("../assets/icon.png");
+    no-frame: true;
+    resize-border-width: (root.window-maximized || root.disable-client-resize) ? 0px : 4px;
     preferred-width: 1280px;
     preferred-height: 800px;
     min-width: 960px;
     min-height: 600px;
-    background: Theme.bg;
+    background: Theme.chrome;
     // Electron body text (Mantine `md`); fonts: `src/fonts.rs`.
     default-font-size: 14px;
     default-font-family: "Noto Sans SC";
+
+    // Integrated window chassis state (synced from winit events in `window_chrome.rs`).
+    in-out property <bool> window-active: true;
+    in-out property <bool> window-maximized: false;
+    // Disabled on platforms whose winit backend does not support drag_resize_window (macOS).
+    in-out property <bool> disable-client-resize: false;
+    property <length> resize-inset: (root.window-maximized || root.disable-client-resize) ? 0px : 4px;
+    out property <length> top-bar-h: 38px;
+    callback window-drag();
+    callback window-minimize();
+    callback window-toggle-maximize();
+    callback window-close();
+    function blur-search() {
+        if title-bar.search-focused {
+            shortcut-scope.focus();
+        }
+    }
+    public function focus-top-search() {
+        if root.logged-in && !root.full-open && root.dialog == DialogKind.none {
+            title-bar.focus-search();
+        }
+    }
 
     in-out property <bool> logged-in: false;
     // True while startup restore/auto-login checks saved credentials so
@@ -563,7 +588,7 @@ export component AppWindow inherits Window {
         root.full-tab = tab;
         root.full-changed();
     }
-    function close-full() {
+    public function close-full() {
         root.full-open = false;
         root.full-changed();
     }
@@ -608,7 +633,7 @@ export component AppWindow inherits Window {
     property <length> panel-w: root.wide ? clamp(root.panel-width, 300px, root.panel-max) : min(372px, root.width - 80px);
     // The current cover in the panel; Rust decodes `np-cover-large` at
     // this size (`np-art-changed`, after resizing settles).
-    out property <length> np-art-side: round(max(120px, min(root.wide ? root.panel-w - 48px : 248px, root.height - root.bar-h - 470px)) / 1phx) * 1phx;
+    out property <length> np-art-side: round(max(120px, min(root.wide ? root.panel-w - 48px : 248px, root.height - root.top-bar-h - root.bar-h - 470px)) / 1phx) * 1phx;
     // The detail header cover; Rust reloads it at this size.
     out property <length> detail-art-side: round(Shell.detail-art / 1phx) * 1phx;
     callback detail-art-changed();
@@ -627,6 +652,48 @@ export component AppWindow inherits Window {
             root.np-art-changed();
         }
     }
+    // Lightweight breadcrumb shown on the left side of the custom TitleBar.
+    property <string> top-crumb: root.full-open
+        ? (root.has-track && root.np-title != "" ? "正在播放 · " + root.np-title : "正在播放")
+        : root.page == 6 ? "搜索"
+        : root.page == 10
+            ? ((root.detail.kind == DetailKind.album ? "专辑"
+                : root.detail.kind == DetailKind.artist ? "艺人"
+                : root.detail.kind == DetailKind.playlist ? "歌单"
+                : root.detail.kind == DetailKind.work ? "作品"
+                : root.detail.kind == DetailKind.series ? "系列"
+                : root.detail.kind == DetailKind.daily-mix ? "每日推荐"
+                : "其他版本")
+                + (root.detail.title != "" ? " / " + root.detail.title : ""))
+        : "";
+
+    top-search-debounce := Timer {
+        interval: 300ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            if !root.logged-in || root.full-open || root.dialog != DialogKind.none {
+                return;
+            }
+            if SearchState.query-input != "" && root.page != 6 {
+                root.navigate(6, 0);
+            }
+            if root.page == 6 {
+                root.content-scroll-y = 0px;
+                SearchState.search(SearchState.query-input);
+            }
+        }
+    }
+
+    public function toggle-right-panel() {
+        if root.small {
+            root.overlay-open = !root.overlay-open;
+        } else {
+            root.panel-open = !root.panel-open;
+        }
+        root.panel-changed();
+    }
+
     // The player bar's lyrics / queue buttons and the queue shortcut: open
     // the panel on that tab, or close it when it already shows it.
     public function toggle-panel(queue: bool) {
@@ -667,14 +734,36 @@ export component AppWindow inherits Window {
     changed page => {
         ContextMenuState.close();
         root.recording-shortcut = -1;
+        top-search-debounce.running = false;
+        if root.page == 6 && SearchState.active-query == "" && root.dialog == DialogKind.none {
+            title-bar.focus-search();
+        } else if root.page != 6 && title-bar.search-focused {
+            shortcut-scope.focus();
+        }
+    }
+    changed logged-in => {
+        top-search-debounce.running = false;
+        if !root.logged-in {
+            ContextMenuState.close();
+            root.blur-search();
+        }
     }
     changed dialog => {
         ContextMenuState.close();
+        top-search-debounce.running = false;
+        if root.dialog != DialogKind.none {
+            root.blur-search();
+        }
     }
     changed full-open => {
         ContextMenuState.close();
+        top-search-debounce.running = false;
+        if root.full-open {
+            root.blur-search();
+        }
     }
     callback shortcut-key(KeyEvent) -> bool;
+    callback capture-global-shortcut(KeyEvent) -> bool;
     callback capture-shortcut(KeyEvent) -> bool;
     callback clear-shortcut(int);
     callback reset-shortcuts();
@@ -769,6 +858,11 @@ export component AppWindow inherits Window {
                 root.dialog = DialogKind.none;
                 return accept;
             }
+            if root.logged-in && root.dialog == DialogKind.none && !ContextMenuState.open && !title-bar.search-focused {
+                if root.capture-global-shortcut(e) {
+                    return accept;
+                }
+            }
             return reject;
         }
         key-pressed(e) => {
@@ -787,28 +881,57 @@ export component AppWindow inherits Window {
                 return reject;
             }
             if root.logged-in && root.full-open && e.text == Key.Escape {
-                root.close-full();
+                if !e.repeat {
+                    root.close-full();
+                }
+                return accept;
+            }
+            if root.logged-in && root.page == 6 && root.can-go-back && e.text == Key.Escape {
+                if !e.repeat {
+                    root.go-back();
+                }
                 return accept;
             }
             if root.logged-in { return root.shortcut-key(e) ? accept : reject; }
             return reject;
         }
 
-    if !root.logged-in && !root.login-restoring: LoginView {
-        server <=> root.login-server;
-        api-token <=> root.login-api-token;
-        media-token <=> root.login-media-token;
-        api-token-saved: root.login-api-token-saved;
-        media-token-saved: root.login-media-token-saved;
-        error: root.login-error;
-        busy: root.login-busy;
-        login(s, a, m) => {
-            root.login(s, a, m);
+    if !root.logged-in && !root.login-restoring: Rectangle {
+        x: 8px;
+        y: root.top-bar-h;
+        width: root.width - 16px;
+        height: root.height - root.top-bar-h - 8px;
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: Theme.border;
+        background: Theme.bg;
+        clip: true;
+        LoginView {
+            width: 100%;
+            height: 100%;
+            server <=> root.login-server;
+            api-token <=> root.login-api-token;
+            media-token <=> root.login-media-token;
+            api-token-saved: root.login-api-token-saved;
+            media-token-saved: root.login-media-token-saved;
+            error: root.login-error;
+            busy: root.login-busy;
+            login(s, a, m) => {
+                root.login(s, a, m);
+            }
         }
     }
 
     if !root.logged-in && root.login-restoring && root.login-restoring-hint: Rectangle {
+        x: 8px;
+        y: root.top-bar-h;
+        width: root.width - 16px;
+        height: root.height - root.top-bar-h - 8px;
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: Theme.border;
         background: Theme.bg;
+        clip: true;
         Text {
             text: "正在连接服务器…";
             color: Theme.text-faint;
@@ -817,146 +940,114 @@ export component AppWindow inherits Window {
     }
 
     if root.logged-in: VerticalLayout {
+        x: 0px;
+        y: root.top-bar-h;
+        width: root.width;
+        height: root.height - root.top-bar-h;
+
         HorizontalLayout {
             vertical-stretch: 1;
+            min-height: 0px;
+            padding-right: 8px;
+            spacing: 0px;
 
-            // Left navigation: search, library, playlists, and the server
-            // status with the settings entry at the bottom (D1). Narrower
-            // than 1700px it is an icon rail (D6).
+            // Left navigation: library, playlists, and server status with the
+            // settings entry at the bottom (D1). Global search lives in TitleBar.
+            // Narrower than 1700px it is an icon rail (D6).
             sidebar := Rectangle {
                 width: root.nav-w;
+                min-height: 0px;
                 background: Theme.chrome;
+                clip: true;
                 property <bool> rail: !root.wide;
                 property <length> item-w: root.small ? 44px : 48px;
-                Rectangle {
-                    x: parent.width - 1px;
-                    width: 1px;
-                    background: Theme.border;
+                TouchArea {
+                    pointer-event(e) => {
+                        if e.kind == PointerEventKind.down {
+                            root.blur-search();
+                        }
+                    }
                 }
                 VerticalLayout {
-                    padding-top: sidebar.rail ? 16px : 18px;
-                    padding-bottom: sidebar.rail ? 12px : 14px;
-                    padding-left: sidebar.rail ? 0px : 14px;
-                    padding-right: sidebar.rail ? 1px : 15px;
+                    padding-top: sidebar.rail ? 6px : 4px;
+                    padding-bottom: 8px;
+                    padding-left: sidebar.rail ? 4px : 12px;
+                    padding-right: sidebar.rail ? 0px : 6px;
                     spacing: 0px;
-                    HorizontalLayout {
-                        alignment: center;
-                        Rectangle {
-                            width: sidebar.rail ? sidebar.item-w : sidebar.width - 29px;
-                            height: 40px;
-                            border-radius: 10px;
-                            background: root.page == 6 ? Theme.surface-hover : search-area.has-hover ? Theme.surface-hover : Theme.raised;
-                            HorizontalLayout {
-                                padding-left: sidebar.rail ? 0px : 12px;
-                                padding-right: sidebar.rail ? 0px : 10px;
-                                spacing: 10px;
-                                alignment: sidebar.rail ? LayoutAlignment.center : LayoutAlignment.stretch;
-                                Icon {
-                                    kind: IconKind.search;
-                                    width: 18px;
-                                    height: 18px;
-                                    y: (parent.height - self.height) / 2;
-                                    color: root.page == 6 ? Theme.accent-text : Theme.text-faint;
-                                }
-                                if !sidebar.rail: Text {
-                                    text: "搜索曲库";
-                                    color: Theme.text-faint;
-                                    font-size: 14px;
-                                    vertical-alignment: center;
-                                    horizontal-stretch: 1;
-                                }
-                                if !sidebar.rail && root.search-shortcut != "": Rectangle {
-                                    y: (parent.height - self.height) / 2;
-                                    height: 18px;
-                                    width: kbd.preferred-width + 12px;
-                                    border-radius: 5px;
-                                    border-width: 1px;
-                                    border-color: Theme.border;
-                                    kbd := Text {
-                                        text: root.search-shortcut;
-                                        color: Theme.text-faint;
-                                        font-size: 11px;
-                                        font-weight: 500;
-                                    }
-                                }
-                            }
-                            search-area := TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => {
-                                    root.navigate(6, 0);
-                                }
-                            }
-                        }
-                    }
-                    if !sidebar.rail: SideHeader {
-                        text: "我的媒体库";
-                    }
-                    if sidebar.rail: Rectangle {
-                        height: 14px;
-                    }
-                    for item in [
-                        { text: "主页", page: 20, icon: IconKind.home },
-                        { text: "收藏", page: 5, icon: IconKind.heart-outline },
-                        { text: "专辑", page: 0, icon: IconKind.disc },
-                        { text: "曲目", page: 1, icon: IconKind.note },
-                        { text: "专辑艺术家", page: 3, icon: IconKind.person },
-                        { text: "艺术家", page: 24, icon: IconKind.people },
-                        { text: "作品", page: 21, icon: IconKind.work },
-                        { text: "系列", page: 22, icon: IconKind.layers },
-                        { text: "播放记录", page: 23, icon: IconKind.history },
-                    ]: HorizontalLayout {
-                        alignment: center;
-                        visible: item.page != 20 || root.has-home;
-                        height: item.page != 20 || root.has-home ? 42px : 0px;
-                        NavItem {
-                            width: sidebar.rail ? sidebar.item-w : sidebar.width - 29px;
-                            rail: sidebar.rail;
-                            text: item.text;
-                            icon: item.icon;
-                            selected: root.page == item.page;
-                            clicked => {
-                                root.navigate(item.page, 0);
-                            }
-                        }
-                    }
-                    if !sidebar.rail: SideHeader {
-                        text: "播放列表";
-                        clicked => {
-                            root.navigate(4, 0);
-                        }
-                        IconButton {
-                            kind: IconKind.plus;
-                            size: 26px;
-                            icon-size: 16px;
-                            y: (parent.height - self.height) / 2;
-                            clicked => {
-                                root.new-playlist();
-                            }
-                        }
-                        IconButton {
-                            kind: IconKind.sliders;
-                            size: 26px;
-                            icon-size: 16px;
-                            y: (parent.height - self.height) / 2;
-                            active: root.page == 4;
-                            clicked => {
-                                root.navigate(4, 0);
-                            }
-                        }
-                    }
-                    if sidebar.rail: Rectangle {
-                        height: 18px;
-                    }
                     side-list := Flickable {
                         vertical-stretch: 1;
+                        min-height: 0px;
                         content-height: side-col.preferred-height;
                         side-col := VerticalLayout {
                             width: side-list.width;
                             alignment: start;
+                            spacing: 0px;
+                            if !sidebar.rail: SideHeader {
+                                height: 36px;
+                                padding-top: 4px;
+                                text: "我的媒体库";
+                            }
+                            for item in [
+                                { text: "主页", page: 20, icon: IconKind.home },
+                                { text: "收藏", page: 5, icon: IconKind.heart-outline },
+                                { text: "专辑", page: 0, icon: IconKind.disc },
+                                { text: "曲目", page: 1, icon: IconKind.note },
+                                { text: "专辑艺术家", page: 3, icon: IconKind.person },
+                                { text: "艺术家", page: 24, icon: IconKind.people },
+                                { text: "作品", page: 21, icon: IconKind.work },
+                                { text: "系列", page: 22, icon: IconKind.layers },
+                                { text: "播放记录", page: 23, icon: IconKind.history },
+                            ]: HorizontalLayout {
+                                alignment: center;
+                                visible: item.page != 20 || root.has-home;
+                                height: item.page != 20 || root.has-home ? 42px : 0px;
+                                NavItem {
+                                    width: sidebar.rail ? sidebar.item-w : sidebar.width - 18px;
+                                    rail: sidebar.rail;
+                                    text: item.text;
+                                    icon: item.icon;
+                                    selected: root.page == item.page;
+                                    clicked => {
+                                        root.blur-search();
+                                        root.navigate(item.page, 0);
+                                    }
+                                }
+                            }
+                            if !sidebar.rail: SideHeader {
+                                text: "播放列表";
+                                clicked => {
+                                    root.blur-search();
+                                    root.navigate(4, 0);
+                                }
+                                IconButton {
+                                    kind: IconKind.plus;
+                                    size: 26px;
+                                    icon-size: 16px;
+                                    y: (parent.height - self.height) / 2;
+                                    clicked => {
+                                        root.blur-search();
+                                        root.new-playlist();
+                                    }
+                                }
+                                IconButton {
+                                    kind: IconKind.sliders;
+                                    size: 26px;
+                                    icon-size: 16px;
+                                    y: (parent.height - self.height) / 2;
+                                    active: root.page == 4;
+                                    clicked => {
+                                        root.blur-search();
+                                        root.navigate(4, 0);
+                                    }
+                                }
+                            }
+                            if sidebar.rail: Rectangle {
+                                height: 18px;
+                            }
                             for p in root.side-playlists: HorizontalLayout {
                                 alignment: center;
                                 Rectangle {
-                                    width: sidebar.rail ? 50px : sidebar.width - 29px;
+                                    width: sidebar.rail ? 50px : sidebar.width - 18px;
                                     height: sidebar.rail ? 50px : 54px;
                                     border-radius: 10px;
                                     background: root.page == 10 && root.detail.kind == DetailKind.playlist && root.detail.id == p.id ? Theme.raised : p-area.has-hover ? Theme.surface-hover : transparent;
@@ -1014,6 +1105,7 @@ export component AppWindow inherits Window {
                                     p-area := TouchArea {
                                         mouse-cursor: pointer;
                                         clicked => {
+                                            root.blur-search();
                                             root.navigate(12, p.id);
                                         }
                                     }
@@ -1025,13 +1117,14 @@ export component AppWindow inherits Window {
                     HorizontalLayout {
                         alignment: center;
                         Rectangle {
-                            width: sidebar.rail ? sidebar.item-w : sidebar.width - 29px;
+                            width: sidebar.rail ? sidebar.item-w : sidebar.width - 18px;
                             height: 42px;
                             border-radius: 10px;
                             background: foot-area.has-hover || root.page == 2 ? Theme.surface-hover : transparent;
                             foot-area := TouchArea {
                                 mouse-cursor: pointer;
                                 clicked => {
+                                    root.blur-search();
                                     root.navigate(2, 0);
                                 }
                             }
@@ -1075,12 +1168,25 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
-                // Resize from the right edge (180-400px; wide windows only).
+            }
+
+            // 8px chassis gap between sidebar and main canvas; on wide windows
+            // it doubles as the sidebar resize handle (180-400px).
+            Rectangle {
+                width: 8px;
+                background: transparent;
                 if root.wide: Rectangle {
-                    x: parent.width - 5px;
-                    width: 5px;
+                    width: 100%;
+                    height: 100%;
                     property <length> press-x;
-                    background: side-edge.has-hover || side-edge.pressed ? Theme.accent-dim : transparent;
+                    Rectangle {
+                        x: 3px;
+                        y: 12px;
+                        width: 2px;
+                        height: parent.height - 24px;
+                        border-radius: 1px;
+                        background: side-edge.has-hover || side-edge.pressed ? Theme.accent : transparent;
+                    }
                     side-edge := TouchArea {
                         mouse-cursor: col-resize;
                         pointer-event(e) => {
@@ -1103,6 +1209,18 @@ export component AppWindow inherits Window {
 
             pages := Rectangle {
                 horizontal-stretch: 1;
+                background: Theme.bg;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: Theme.border;
+                clip: true;
+                TouchArea {
+                    pointer-event(e) => {
+                        if e.kind == PointerEventKind.down {
+                            root.blur-search();
+                        }
+                    }
+                }
 
                 if root.page == 0: VerticalLayout {
                     PageHeader {
@@ -2305,57 +2423,48 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                if root.can-go-back && root.page == 10: Rectangle {
-                    x: 16px;
-                    y: 14px;
-                    width: 36px;
-                    height: 36px;
-                    border-radius: 18px;
-                    background: back-area.has-hover ? Theme.surface-hover : Theme.raised.with-alpha(0.85);
-                    Icon {
-                        kind: IconKind.back;
-                        width: 18px;
-                        height: 18px;
-                        color: Theme.text;
-                    }
-                    back-area := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            root.go-back();
-                        }
-                    }
-                }
+            }
 
-                // Narrow windows: the right panel is an overlay, opened here
-                // or from the player bar.
-                if root.small && !root.overlay-open: Rectangle {
-                    x: parent.width - self.width - 14px;
-                    y: 14px;
-                    width: 40px;
-                    height: 40px;
-                    border-radius: 20px;
-                    background: open-area.has-hover ? Theme.surface-hover : Theme.raised;
-                    drop-shadow-blur: 16px;
-                    drop-shadow-offset-y: 6px;
-                    drop-shadow-color: #00000066;
-                    Icon {
-                        kind: IconKind.lyrics;
-                        width: 18px;
-                        height: 18px;
-                        color: Theme.text-dim;
+            // 8px chassis gap between main canvas and docked right panel; on
+            // wide windows it doubles as the panel resize handle.
+            if root.panel-docked: Rectangle {
+                width: 8px;
+                background: transparent;
+                if root.wide: Rectangle {
+                    width: 100%;
+                    height: 100%;
+                    property <length> press-x;
+                    Rectangle {
+                        x: 3px;
+                        y: 12px;
+                        width: 2px;
+                        height: parent.height - 24px;
+                        border-radius: 1px;
+                        background: panel-edge.has-hover || panel-edge.pressed ? Theme.accent : transparent;
                     }
-                    open-area := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            root.toggle-panel(false);
+                    panel-edge := TouchArea {
+                        mouse-cursor: col-resize;
+                        pointer-event(e) => {
+                            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                                parent.press-x = self.mouse-x;
+                            }
+                            if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
+                                root.panel-width = root.panel-w;
+                                root.panel-changed();
+                            }
+                        }
+                        moved => {
+                            if self.pressed {
+                                root.panel-width = clamp(root.panel-w - (self.mouse-x - parent.press-x), 300px, root.panel-max);
+                            }
                         }
                     }
                 }
             }
 
             // Room for the docked right panel (drawn above, see `right`).
-            Rectangle {
-                width: root.panel-docked ? root.panel-w : 0px;
+            if root.panel-docked: Rectangle {
+                width: root.panel-w;
             }
         }
 
@@ -2370,21 +2479,28 @@ export component AppWindow inherits Window {
             wasapi-device-label: root.wasapi-device-label;
             asio-driver-label: root.asio-driver-label;
             asio-error: root.asio-error;
+            interacted => {
+                root.blur-search();
+            }
             toggle-exclusive => {
+                root.blur-search();
                 root.output-busy = true;
                 root.exclusive-quick-toggled();
             }
             select-exclusive-mode(m) => {
+                root.blur-search();
                 root.output-busy = true;
                 root.exclusive-mode-selected(m);
             }
             open-audio-settings => {
+                root.blur-search();
                 root.navigate(2, 0);
             }
             has-track: root.has-track;
             show-cover: !root.panel-shown || root.full-open;
             full-open: root.full-open;
             toggle-full => {
+                root.blur-search();
                 if root.full-open {
                     root.close-full();
                 } else {
@@ -2412,57 +2528,75 @@ export component AppWindow inherits Window {
             sleep-active: root.sleep-active;
             sleep-label: root.sleep-label;
             set-sleep(mode, minutes) => {
+                root.blur-search();
                 root.set-sleep(mode, minutes);
             }
             toggle-favorite => {
+                root.blur-search();
                 root.toggle-now-favorite();
             }
             open-album => {
+                root.blur-search();
                 root.open-now-album();
             }
             open-artist(id) => {
+                root.blur-search();
                 root.open-now-artist(id);
             }
             toggle-queue => {
+                root.blur-search();
                 root.toggle-panel(true);
             }
             toggle-shuffle => {
+                root.blur-search();
                 root.toggle-shuffle();
             }
             cycle-repeat => {
+                root.blur-search();
                 root.cycle-repeat();
             }
             toggle-pause => {
+                root.blur-search();
                 root.toggle-pause();
             }
             next => {
+                root.blur-search();
                 root.next();
             }
             previous => {
+                root.blur-search();
                 root.previous();
             }
             seek(ms) => {
+                root.blur-search();
                 root.seek(ms);
             }
             volume-changed(v) => {
+                root.blur-search();
                 root.volume = v;
                 root.volume-changed(v);
             }
             toggle-lyrics => {
+                root.blur-search();
                 root.toggle-panel(false);
             }
         }
     }
 
-    // Right "now playing" panel (D2): docked beside the pages, or an
-    // overlay on narrow windows. The left edge resizes it (wide windows).
+    // Right "now playing" panel (D2): docked beside the pages inside the
+    // chassis, or an overlay drawer on narrow windows.
     if root.logged-in && root.panel-shown: right := Rectangle {
-        x: root.width - self.width;
-        y: 0;
+        x: root.width - self.width - 8px;
+        y: root.top-bar-h;
         width: root.panel-w;
-        height: root.height - root.bar-h;
-        property <length> press-x;
+        height: root.height - root.top-bar-h - root.bar-h;
+        border-radius: 10px;
+        drop-shadow-blur: root.small ? 32px : 0px;
+        drop-shadow-offset-x: root.small ? -8px : 0px;
+        drop-shadow-color: root.small ? (Theme.dark ? #0000008c : #11111329) : transparent;
         np := NowPlayingPanel {
+            width: 100%;
+            height: 100%;
             has-track: root.has-track;
             title: root.np-title;
             artist: root.np-artist;
@@ -2481,20 +2615,28 @@ export component AppWindow inherits Window {
             queue-count: root.queue-total;
             lyrics-source: root.lyrics-source;
             floating: root.small;
+            interacted => {
+                root.blur-search();
+            }
             tab-selected(i) => {
+                root.blur-search();
                 root.panel-queue-tab = i == 1;
                 root.panel-changed();
             }
             toggle-favorite => {
+                root.blur-search();
                 root.toggle-now-favorite();
             }
             open-album => {
+                root.blur-search();
                 root.open-now-album();
             }
             open-artist(id) => {
+                root.blur-search();
                 root.open-now-artist(id);
             }
             open-full => {
+                root.blur-search();
                 root.open-full(0);
             }
 
@@ -2566,38 +2708,14 @@ export component AppWindow inherits Window {
                 }
             }
         }
-
-        // Resize from the left edge.
-        if root.wide: Rectangle {
-            x: 0;
-            width: 5px;
-            background: edge-area.has-hover || edge-area.pressed ? Theme.accent-dim : transparent;
-            edge-area := TouchArea {
-                mouse-cursor: col-resize;
-                pointer-event(e) => {
-                    if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
-                        right.press-x = self.mouse-x;
-                    }
-                    if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
-                        root.panel-width = right.width;
-                        root.panel-changed();
-                    }
-                }
-                moved => {
-                    if self.pressed {
-                        root.panel-width = clamp(right.width - (self.mouse-x - right.press-x), 300px, root.panel-max);
-                    }
-                }
-            }
-        }
     }
 
     if root.logged-in && root.full-open: full := FullScreenPlayer {
-        x: 0;
-        y: 0;
-        width: root.width;
-        // The player bar stays visible.
-        height: root.height - root.bar-h;
+        x: 8px;
+        y: root.top-bar-h;
+        width: root.width - 16px;
+        // The top TitleBar and bottom player bar stay visible.
+        height: root.height - root.top-bar-h - root.bar-h;
         cover: root.full-cover;
         has-track: root.has-track;
         title: root.np-title;
@@ -2740,90 +2858,193 @@ export component AppWindow inherits Window {
         }
     }
 
-    if ContextMenuState.open: ContextMenuOverlay { }
+    // Modals sit below the custom TitleBar so window dragging and caption
+    // buttons stay responsive while a dialog is open.
+    if root.dialog != DialogKind.none: Rectangle {
+        x: 0px;
+        y: root.top-bar-h;
+        width: root.width;
+        height: root.height - root.top-bar-h;
 
-    if root.dialog == DialogKind.new-playlist || root.dialog == DialogKind.edit-playlist: PromptDialog {
-        title: root.dialog == DialogKind.new-playlist ? "新建歌单" : "编辑歌单";
-        confirm-text: root.dialog == DialogKind.new-playlist ? "创建" : "保存";
-        name <=> root.dialog-name;
-        description <=> root.dialog-description;
-        confirm(name, description) => {
-            root.dialog-confirm(name, description);
-            root.dialog = DialogKind.none;
+        if root.dialog == DialogKind.new-playlist || root.dialog == DialogKind.edit-playlist: PromptDialog {
+            title: root.dialog == DialogKind.new-playlist ? "新建歌单" : "编辑歌单";
+            confirm-text: root.dialog == DialogKind.new-playlist ? "创建" : "保存";
+            name <=> root.dialog-name;
+            description <=> root.dialog-description;
+            confirm(name, description) => {
+                root.dialog-confirm(name, description);
+                root.dialog = DialogKind.none;
+            }
+            cancel => {
+                root.dialog = DialogKind.none;
+            }
         }
-        cancel => {
-            root.dialog = DialogKind.none;
-        }
-    }
 
-    if root.dialog == DialogKind.clear-history: ConfirmDialog {
-        title: "确定清空全部播放记录吗？";
-        message: root.dialog-message;
-        confirm-text: "永久清空";
-        confirm => {
-            root.dialog = DialogKind.none;
-            Lib032.detail-action("clear-history", 0);
+        if root.dialog == DialogKind.clear-history: ConfirmDialog {
+            title: "确定清空全部播放记录吗？";
+            message: root.dialog-message;
+            confirm-text: "永久清空";
+            confirm => {
+                root.dialog = DialogKind.none;
+                Lib032.detail-action("clear-history", 0);
+            }
+            cancel => {
+                root.dialog = DialogKind.none;
+            }
         }
-        cancel => {
-            root.dialog = DialogKind.none;
-        }
-    }
 
-    if root.dialog == DialogKind.pick-artist: Rectangle {
-        background: #00000099;
-        TouchArea { clicked => { root.dialog = DialogKind.none; } }
-        Rectangle {
-            width: min(440px, root.width - 64px);
-            height: min(artist-menu.preferred-height, root.height - 64px);
-            border-radius: 12px;
-            background: Theme.surface;
-            TouchArea { }
-            artist-menu := VerticalLayout {
-                padding: 20px;
-                spacing: 8px;
-                HorizontalLayout {
-                    Text { text: "选择艺术家"; color: Theme.text; font-size: 18px; font-weight: 700; horizontal-stretch: 1; vertical-alignment: center; }
-                    IconButton { kind: IconKind.close; size: 30px; clicked => { root.dialog = DialogKind.none; } }
-                }
-                ScrollView {
-                    height: min(root.artist-choices.length * 44px, 360px);
-                    VerticalLayout {
-                        for artist in root.artist-choices: Rectangle {
-                            height: 44px;
-                            border-radius: 6px;
-                            background: artist-choice.has-hover ? Theme.surface-hover : transparent;
-                            Text { x: 12px; width: parent.width - 24px; text: artist.text; font-family: Fonts.family(self.text); color: Theme.text; overflow: elide; vertical-alignment: center; }
-                            artist-choice := TouchArea { mouse-cursor: pointer; clicked => { root.artist-chosen(artist.id); } }
+        if root.dialog == DialogKind.pick-artist: Rectangle {
+            background: #00000099;
+            TouchArea { clicked => { root.dialog = DialogKind.none; } }
+            Rectangle {
+                width: min(440px, parent.width - 64px);
+                height: min(artist-menu.preferred-height, parent.height - 64px);
+                border-radius: 12px;
+                background: Theme.surface;
+                TouchArea { }
+                artist-menu := VerticalLayout {
+                    padding: 20px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        Text { text: "选择艺术家"; color: Theme.text; font-size: 18px; font-weight: 700; horizontal-stretch: 1; vertical-alignment: center; }
+                        IconButton { kind: IconKind.close; size: 30px; clicked => { root.dialog = DialogKind.none; } }
+                    }
+                    ScrollView {
+                        height: min(root.artist-choices.length * 44px, 360px);
+                        VerticalLayout {
+                            for artist in root.artist-choices: Rectangle {
+                                height: 44px;
+                                border-radius: 6px;
+                                background: artist-choice.has-hover ? Theme.surface-hover : transparent;
+                                Text { x: 12px; width: parent.width - 24px; text: artist.text; font-family: Fonts.family(self.text); color: Theme.text; overflow: elide; vertical-alignment: center; }
+                                artist-choice := TouchArea { mouse-cursor: pointer; clicked => { root.artist-chosen(artist.id); } }
+                            }
                         }
                     }
                 }
             }
         }
-    }
 
-    if root.dialog == DialogKind.track-info: InfoDialog {
-        rows: root.info-rows;
-        close => {
-            root.dialog = DialogKind.none;
+        if root.dialog == DialogKind.track-info: InfoDialog {
+            rows: root.info-rows;
+            close => {
+                root.dialog = DialogKind.none;
+            }
+        }
+
+        if root.dialog == DialogKind.lyrics-search: LyricsSearchDialog {
+            close => {
+                root.dialog = DialogKind.none;
+            }
+        }
+
+        if root.dialog == DialogKind.delete-playlist: ConfirmDialog {
+            title: "删除歌单";
+            message: root.dialog-message;
+            confirm-text: "删除";
+            confirm => {
+                root.dialog-confirm("", "");
+                root.dialog = DialogKind.none;
+            }
+            cancel => {
+                root.dialog = DialogKind.none;
+            }
         }
     }
 
-    if root.dialog == DialogKind.lyrics-search: LyricsSearchDialog {
-        close => {
-            root.dialog = DialogKind.none;
-        }
+    // Context menu sits below TitleBar in z-order so caption buttons and
+    // dragging remain responsive even while a menu is open.
+    if ContextMenuState.open: ContextMenuOverlay {
+        top-inset: root.top-bar-h;
     }
 
-    if root.dialog == DialogKind.delete-playlist: ConfirmDialog {
-        title: "删除歌单";
-        message: root.dialog-message;
-        confirm-text: "删除";
-        confirm => {
-            root.dialog-confirm("", "");
-            root.dialog = DialogKind.none;
+    // Integrated 38px chrome TitleBar (Option D chassis).
+    title-bar := TitleBar {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        app-icon: root.icon;
+        logged-in: root.logged-in;
+        full-open: root.full-open;
+        modal-open: root.dialog != DialogKind.none;
+        small: root.small;
+        can-go-back: root.can-go-back;
+        crumb: root.top-crumb;
+        search-shortcut: root.search-shortcut;
+        search-text <=> SearchState.query-input;
+        panel-open: root.panel-shown;
+        window-active: root.window-active;
+        window-maximized: root.window-maximized;
+        resize-inset: root.resize-inset;
+        chrome-pressed => {
+            ContextMenuState.close();
         }
-        cancel => {
-            root.dialog = DialogKind.none;
+        go-back => {
+            ContextMenuState.close();
+            root.blur-search();
+            root.go-back();
+        }
+        close-full => {
+            ContextMenuState.close();
+            root.close-full();
+        }
+        search-edited => {
+            if !root.logged-in || root.full-open || root.dialog != DialogKind.none {
+                return;
+            }
+            top-search-debounce.restart();
+        }
+        search-accepted => {
+            top-search-debounce.running = false;
+            if !root.logged-in || root.full-open || root.dialog != DialogKind.none {
+                return;
+            }
+            if root.page != 6 {
+                root.navigate(6, 0);
+            }
+            root.content-scroll-y = 0px;
+            SearchState.search(SearchState.query-input);
+        }
+        search-cleared => {
+            top-search-debounce.running = false;
+            if !root.logged-in || root.full-open || root.dialog != DialogKind.none {
+                return;
+            }
+            if root.page == 6 {
+                root.content-scroll-y = 0px;
+            }
+            SearchState.search("");
+        }
+        search-escaped => {
+            top-search-debounce.running = false;
+            shortcut-scope.focus();
+            if root.page == 6 && SearchState.query-input == "" && root.can-go-back {
+                root.go-back();
+            }
+        }
+        unfocus-search => {
+            shortcut-scope.focus();
+        }
+        toggle-panel => {
+            ContextMenuState.close();
+            root.blur-search();
+            root.toggle-right-panel();
+        }
+        window-drag => {
+            ContextMenuState.close();
+            root.window-drag();
+        }
+        window-minimize => {
+            ContextMenuState.close();
+            root.window-minimize();
+        }
+        window-toggle-maximize => {
+            ContextMenuState.close();
+            root.window-toggle-maximize();
+        }
+        window-close => {
+            ContextMenuState.close();
+            root.window-close();
         }
     }
 
@@ -2846,5 +3067,16 @@ export component AppWindow inherits Window {
             wrap: word-wrap;
             width: min(528px, self.preferred-width);
         }
+    }
+
+    // Crisp 1px outer perimeter border when not maximized (complements
+    // Windows 11 DWM border color and frames the window on Win10 / Linux).
+    if !root.window-maximized: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        border-width: 1px;
+        border-color: root.window-active ? Theme.win-border : Theme.win-border-inactive;
     }
 }

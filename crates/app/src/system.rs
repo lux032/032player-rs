@@ -85,13 +85,10 @@ pub fn install(window: &AppWindow, commander: Commander) {
     // Closing hides to the tray when enabled (and there is a tray), else quits.
     let weak = window.as_weak();
     window.window().on_close_requested(move || {
-        // Record geometry before hiding: once hidden, `is_visible()` becomes
-        // false and shutdown's `window_state()` would skip the final resize.
-        crate::ui::record_window_now();
-        let to_tray = weak
-            .upgrade()
-            .is_some_and(|w| w.get_close_to_tray() && w.get_tray_available());
-        if !to_tray {
+        if let Some(w) = weak.upgrade() {
+            handle_close_request(&w);
+        } else {
+            crate::ui::record_window_now();
             let _ = slint::quit_event_loop();
         }
         slint::CloseRequestResponse::HideWindow
@@ -130,6 +127,24 @@ fn tray() -> Option<os::tray::Tray> {
     }
 }
 
+/// Shared close logic for both OS `on_close_requested` and custom title bar close.
+fn handle_close_request(w: &AppWindow) {
+    // Record geometry before hiding: once hidden, `is_visible()` becomes
+    // false and shutdown's `window_state()` would skip the final resize.
+    crate::ui::record_window_now();
+    let to_tray = w.get_close_to_tray() && w.get_tray_available();
+    if !to_tray {
+        let _ = slint::quit_event_loop();
+    }
+}
+
+/// Records window geometry, hides the window immediately (matching
+/// `CloseRequestResponse::HideWindow`), and quits unless closing to the tray.
+pub fn close_or_hide(w: &AppWindow) {
+    handle_close_request(w);
+    let _ = w.hide();
+}
+
 /// A second start of the app asks this one to show itself.
 pub fn activate() {
     on_ui(System::show_window);
@@ -153,6 +168,7 @@ impl System {
         if let Some(w) = self.window.upgrade() {
             let _ = w.show();
             w.window().set_minimized(false);
+            crate::window_chrome::focus_and_sync(&w);
         }
     }
 

@@ -124,6 +124,7 @@ component ContextMenuRow inherits Rectangle {
 }
 
 export component ContextMenuOverlay inherits Rectangle {
+    in property <length> top-inset: 0px;
     width: 100%;
     height: 100%;
 
@@ -188,9 +189,10 @@ export component ContextMenuOverlay inherits Rectangle {
     }
 
     property <length> menu-w: 222px;
-    property <length> menu-h: min(max(44px, Shell.window-height - 16px), menu-col.preferred-height);
+    property <length> menu-min-y: root.top-inset + 8px;
+    property <length> menu-h: min(max(44px, Shell.window-height - root.menu-min-y - 8px), menu-col.preferred-height);
     property <length> menu-x: clamp(ContextMenuState.anchor-x, 8px, max(8px, Shell.window-width - root.menu-w - 8px));
-    property <length> menu-y: clamp(ContextMenuState.anchor-y, 8px, max(8px, Shell.window-height - root.menu-h - 8px));
+    property <length> menu-y: clamp(ContextMenuState.anchor-y, root.menu-min-y, max(root.menu-min-y, Shell.window-height - root.menu-h - 8px));
 
     main-panel := Rectangle {
         x: root.menu-x;
@@ -272,7 +274,7 @@ export component ContextMenuOverlay inherits Rectangle {
     property <length> sub-x: (root.menu-x + root.menu-w + 4px + root.sub-w + 8px <= Shell.window-width)
         ? (root.menu-x + root.menu-w + 4px)
         : max(8px, root.menu-x - root.sub-w - 4px);
-    property <length> sub-y: clamp(root.menu-y + root.sub-anchor-y - 6px, 8px, max(8px, Shell.window-height - root.sub-h - 8px));
+    property <length> sub-y: clamp(root.menu-y + root.sub-anchor-y - 6px, root.menu-min-y, max(root.menu-min-y, Shell.window-height - root.sub-h - 8px));
 
     if root.sub-open: Rectangle {
         x: root.sub-x;

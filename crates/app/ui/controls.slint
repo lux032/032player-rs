@@ -94,7 +94,7 @@ export component PlayingBars inherits Rectangle {
     }
 }
 
-export enum IconKind { play, pause, next, previous, lyrics, shuffle, repeat, repeat-one, queue, close, sleep, heart, heart-outline, back, search, plus, arrow-up, arrow-down, more, locate, trash, playlist-add, home, disc, note, person, people, work, layers, history, gear, list, logout, chevron-up, chevron-down, chevron-right, minus, volume, info, speaker, lang, expand, sliders, list-plus, sort-desc, check, cast, versions, radio, infinity, refresh }
+export enum IconKind { play, pause, next, previous, lyrics, shuffle, repeat, repeat-one, queue, close, sleep, heart, heart-outline, back, search, plus, arrow-up, arrow-down, more, locate, trash, playlist-add, home, disc, note, person, people, work, layers, history, gear, list, logout, chevron-up, chevron-down, chevron-right, minus, volume, info, speaker, lang, expand, sliders, list-plus, sort-desc, check, cast, versions, radio, infinity, refresh, win-min, win-max, win-restore, panel-right }
 
 export struct CastRoomRow {
     id: string,
@@ -220,6 +220,10 @@ export component Icon inherits Path {
         : root.kind == IconKind.radio ? "M 10.2 12 A 1.8 1.8 0 1 0 13.8 12 A 1.8 1.8 0 1 0 10.2 12 M 16.24 7.76 A 6 6 0 0 1 16.24 16.24 M 7.76 16.24 A 6 6 0 0 1 7.76 7.76 M 19.07 4.93 A 10 10 0 0 1 19.07 19.07 M 4.93 19.07 A 10 10 0 0 1 4.93 4.93"
         : root.kind == IconKind.infinity ? "M 17.4 8 C 21.8 8 21.8 16 17.4 16 C 13.2 16 10.8 8 6.6 8 C 2.2 8 2.2 16 6.6 16 C 10.8 16 13.2 8 17.4 8 Z"
         : root.kind == IconKind.refresh ? "M 20.5 12 A 8.5 8.5 0 1 1 18 5.99 L 20.5 8.5 M 20.5 3.5 L 20.5 8.5 L 15.5 8.5"
+        : root.kind == IconKind.win-min ? "M 4 12 L 20 12"
+        : root.kind == IconKind.win-max ? "M 5.5 4.5 L 18.5 4.5 A 1 1 0 0 1 19.5 5.5 L 19.5 18.5 A 1 1 0 0 1 18.5 19.5 L 5.5 19.5 A 1 1 0 0 1 4.5 18.5 L 4.5 5.5 A 1 1 0 0 1 5.5 4.5 Z"
+        : root.kind == IconKind.win-restore ? "M 5 7.5 L 15.5 7.5 A 1 1 0 0 1 16.5 8.5 L 16.5 19 A 1 1 0 0 1 15.5 20 L 5 20 A 1 1 0 0 1 4 19 L 4 8.5 A 1 1 0 0 1 5 7.5 Z M 8 7.5 L 8 5 A 1 1 0 0 1 9 4 L 19 4 A 1 1 0 0 1 20 5 L 20 15 A 1 1 0 0 1 19 16 L 16.5 16"
+        : root.kind == IconKind.panel-right ? "M 5 4 L 19 4 A 2 2 0 0 1 21 6 L 21 18 A 2 2 0 0 1 19 20 L 5 20 A 2 2 0 0 1 3 18 L 3 6 A 2 2 0 0 1 5 4 Z M 15 4 L 15 20"
         : "";
 }
 

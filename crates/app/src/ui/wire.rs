@@ -494,12 +494,17 @@ pub fn install(window: &AppWindow, commander: Commander, settings: &Settings) {
         }
     });
     let c = commander.clone();
+    let weak = window.as_weak();
     window.on_theme_selected(move |i| {
         c.send(Command::SetTheme(match i {
             0 => ThemeMode::System,
             2 => ThemeMode::Light,
             _ => ThemeMode::Dark,
         }));
+        if let Some(w) = weak.upgrade() {
+            w.set_theme_mode(i);
+            crate::window_chrome::sync(&w);
+        }
     });
     let c = commander.clone();
     window.on_settings_opened(move || c.send(Command::RefreshAudioSettings));

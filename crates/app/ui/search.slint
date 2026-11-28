@@ -1,7 +1,7 @@
 import { ArtFit, Fonts, Shell, Theme } from "theme.slint";
 import { GridId, TrackListId } from "ids.slint";
 import {
-    ArtistAvatar, GhostButton, Icon, IconKind, PlayingBars, PrimaryButton, RadioState, SearchField, Tab,
+    ArtistAvatar, GhostButton, Icon, IconKind, PlayingBars, PrimaryButton, RadioState, Tab,
 } from "controls.slint";
 import {
     AlbumRow, ArtistLayout, ArtistLinks, CardGrid, ContextMenuEntry, ContextMenuState, CreditPart, PlaylistChoice, TrackList, TrackRow,
@@ -458,7 +458,6 @@ export component SearchPage inherits VerticalLayout {
 
     property <length> pad: Shell.pad;
     property <length> content-w: max(200px, root.width - 2 * root.pad);
-    property <bool> narrow-head: root.content-w < 780px;
     property <int> grid-cols: max(1, floor((root.content-w + 20px) / 280px));
     property <length> card-w: (root.content-w - (root.grid-cols - 1) * 20px) / root.grid-cols;
     property <int> artist-grid-rows: SearchState.artists.length == 0 ? 0 : floor((SearchState.artists.length + root.grid-cols - 1) / root.grid-cols);
@@ -528,112 +527,33 @@ export component SearchPage inherits VerticalLayout {
         return count > 0 ? base + " " + count : base;
     }
 
-    search-debounce := Timer {
-        interval: 400ms;
-        running: false;
-        triggered => {
-            self.running = false;
-            root.scroll-y = 0px;
-            SearchState.search(SearchState.query-input);
-        }
-    }
-
-    // Header + tabs
+    // Header + tabs (global search input lives in the top TitleBar).
     VerticalLayout {
         vertical-stretch: 0;
         padding-left: root.pad;
         padding-right: root.pad;
-        padding-top: Shell.tier == 2 ? 44px : 32px;
-        spacing: 20px;
+        padding-top: Shell.tier == 2 ? 32px : 24px;
+        spacing: 16px;
 
-        if !root.narrow-head: HorizontalLayout {
-            padding-right: 40px;
-            spacing: 24px;
+        HorizontalLayout {
+            spacing: 16px;
             alignment: stretch;
             Text {
                 text: SearchState.active-query != "" ? "“" + SearchState.active-query + "”的搜索结果" : "搜索音乐库";
                 font-family: Fonts.family(self.text);
                 color: Theme.text;
-                font-size: Shell.tier == 2 ? 42px : 34px;
+                font-size: Shell.tier == 2 ? 38px : 30px;
                 font-weight: 850;
-                letter-spacing: -1.2px;
+                letter-spacing: -1px;
                 overflow: elide;
                 vertical-alignment: center;
                 horizontal-stretch: 1;
             }
-            HorizontalLayout {
-                spacing: 10px;
-                horizontal-stretch: 0;
-                alignment: end;
-                search-field := SearchField {
-                    width: 340px;
-                    height: 40px;
-                    border-radius: 20px;
-                    placeholder: "搜索歌手、专辑或歌曲";
-                    text <=> SearchState.query-input;
-                    init => {
-                        self.focus();
-                    }
-                    edited => {
-                        search-debounce.restart();
-                    }
-                    accepted => {
-                        search-debounce.running = false;
-                        root.scroll-y = 0px;
-                        SearchState.search(SearchState.query-input);
-                    }
-                }
-                GhostButton {
-                    y: (parent.height - self.height) / 2;
-                    height: 40px;
-                    text: "搜索";
-                    clicked => {
-                        search-debounce.running = false;
-                        root.scroll-y = 0px;
-                        SearchState.search(SearchState.query-input);
-                    }
-                }
-            }
-        }
-
-        if root.narrow-head: VerticalLayout {
-            spacing: 16px;
-            Text {
-                text: SearchState.active-query != "" ? "“" + SearchState.active-query + "”的搜索结果" : "搜索音乐库";
-                font-family: Fonts.family(self.text);
-                color: Theme.text;
-                font-size: 28px;
-                font-weight: 850;
-                letter-spacing: -0.8px;
-                wrap: word-wrap;
-            }
-            HorizontalLayout {
-                spacing: 10px;
-                search-field-narrow := SearchField {
-                    horizontal-stretch: 1;
-                    height: 40px;
-                    border-radius: 20px;
-                    placeholder: "搜索歌手、专辑或歌曲";
-                    text <=> SearchState.query-input;
-                    edited => {
-                        search-debounce.restart();
-                    }
-                    accepted => {
-                        search-debounce.running = false;
-                        root.scroll-y = 0px;
-                        SearchState.search(SearchState.query-input);
-                    }
-                }
-                GhostButton {
-                    y: (parent.height - self.height) / 2;
-                    height: 40px;
-                    text: "搜索";
-                    clicked => {
-                        search-debounce.running = false;
-                        root.scroll-y = 0px;
-                        SearchState.search(SearchState.query-input);
-                    }
-                }
+            if root.content-w >= 640px: Text {
+                text: "顶部搜索框即时响应 · Esc 退出聚焦";
+                color: Theme.text-faint;
+                font-size: 12px;
+                vertical-alignment: center;
             }
         }
 

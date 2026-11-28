@@ -1,5 +1,5 @@
 import { ArtistLayout, ArtistLinks, CreditPart } from "views.slint";
-import { ArtFit, Fonts, Theme } from "theme.slint";
+import { ArtFit, Fonts, Shell, Theme } from "theme.slint";
 import { Icon, IconKind, RadioState } from "controls.slint";
 import { PillTab, SourceBadge, QualityTag } from "nowplaying.slint";
 
@@ -40,23 +40,27 @@ export component FullScreenPlayer inherits Rectangle {
     // The cover side settled (after resizing): decode the artwork for it.
     callback cover-resized(length);
 
-    out property <bool> wide: root.width >= 1700px;
+    out property <bool> wide: Shell.tier == 2;
 
     // Wide geometry (the mockup at 2300: 120 / 620 / 120 / lyrics / 60 /
-    // 440 / 60).
+    // 440 / 60). Short wide windows (e.g. 1700x600) shrink the cover height
+    // and tighten vertical spacing while keeping the left column wide enough
+    // for metadata and tags so they never bleed into the lyrics column.
+    property <bool> short-wide: root.wide && root.height < 580px;
     property <length> pad-x: clamp(root.width * 0.052, 48px, 120px);
-    property <length> wide-cover: round(max(240px, min(clamp(root.width * 0.27, 360px, 620px), root.height - 110px - 270px)) / 1phx) * 1phx;
-    out property <length> lyrics-x: root.pad-x + root.wide-cover + root.pad-x;
-    out property <length> lyrics-y: 100px;
+    property <length> wide-col-w: round(clamp(root.width * 0.27, 360px, 620px) / 1phx) * 1phx;
+    property <length> wide-cover: round(max(140px, min(root.wide-col-w, root.height - (root.short-wide ? 44px : 84px) - (root.short-wide ? 236px : 260px))) / 1phx) * 1phx;
+    out property <length> lyrics-x: root.pad-x + root.wide-col-w + root.pad-x;
+    out property <length> lyrics-y: 74px;
     out property <length> side-w: 440px;
     out property <length> side-x: root.width - 60px - root.side-w;
     out property <length> lyrics-w: max(200px, root.side-x - 60px - root.lyrics-x);
-    out property <length> lyrics-h: root.height - root.lyrics-y - 40px;
-    out property <length> side-y: 100px;
-    out property <length> side-h: root.height - root.side-y - 40px;
+    out property <length> lyrics-h: root.height - root.lyrics-y - 36px;
+    out property <length> side-y: 74px;
+    out property <length> side-h: root.height - root.side-y - 36px;
     // Lyrics tools in the header row of the lyrics column.
     out property <length> tools-x: root.lyrics-x + lyrics-head.preferred-width + 16px;
-    out property <length> tools-y: 25px;
+    out property <length> tools-y: 19px;
 
     // Narrow geometry: cover column 42%, tabs 58%.
     property <length> pad: 48px;
@@ -72,6 +76,10 @@ export component FullScreenPlayer inherits Rectangle {
     out property <length> side: root.wide ? root.wide-cover : root.narrow-cover;
 
     background: Theme.stage;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
     init => {
         root.cover-resized(root.side);
     }
@@ -98,9 +106,9 @@ export component FullScreenPlayer inherits Rectangle {
     // the left column (narrow).
     Rectangle {
         x: root.wide ? root.pad-x : root.pad;
-        y: root.wide ? 100px : root.pad;
-        width: root.wide ? root.wide-cover : root.col-w;
-        height: root.height - self.y - 40px;
+        y: root.short-wide ? 44px : root.wide ? 74px : root.pad;
+        width: root.wide ? root.wide-col-w : root.col-w;
+        height: root.height - self.y - (root.short-wide ? 20px : 36px);
         VerticalLayout {
             alignment: root.wide ? start : center;
             spacing: 0px;
@@ -129,20 +137,20 @@ export component FullScreenPlayer inherits Rectangle {
                 }
             }
             Rectangle {
-                height: root.wide ? 36px : 28px;
+                height: root.short-wide ? 16px : root.wide ? 36px : 28px;
             }
             Text {
                 text: root.has-track ? root.title : "未在播放";
                 font-family: Fonts.family(self.text);
                 color: Theme.text;
-                font-size: root.wide ? Theme.font-full-title : 34px;
+                font-size: root.short-wide ? 36px : root.wide ? Theme.font-full-title : 34px;
                 font-weight: 850;
-                letter-spacing: root.wide ? -1.7px : -0.7px;
+                letter-spacing: root.short-wide ? -0.8px : root.wide ? -1.7px : -0.7px;
                 horizontal-alignment: root.wide ? left : center;
                 overflow: elide;
             }
             Rectangle {
-                height: 10px;
+                height: root.short-wide ? 6px : 10px;
             }
             if root.has-track: HorizontalLayout {
                 min-width: 0px;
@@ -196,7 +204,7 @@ export component FullScreenPlayer inherits Rectangle {
                 }
             }
             Rectangle {
-                height: 18px;
+                height: root.short-wide ? 12px : 18px;
             }
             if root.has-track: HorizontalLayout {
                 alignment: root.wide ? start : center;
@@ -287,7 +295,7 @@ export component FullScreenPlayer inherits Rectangle {
     lyrics-head := HorizontalLayout {
         visible: root.wide;
         x: root.lyrics-x;
-        y: 30px;
+        y: 24px;
         width: self.preferred-width;
         height: 24px;
         spacing: 8px;
@@ -337,27 +345,5 @@ export component FullScreenPlayer inherits Rectangle {
         width: root.width;
         height: root.height;
         @children
-    }
-
-    // Close (top left in the mockup).
-    Rectangle {
-        x: root.wide ? root.pad-x : 24px;
-        y: root.wide ? 28px : 20px;
-        width: 40px;
-        height: 40px;
-        border-radius: 20px;
-        background: close-area.has-hover ? Theme.text.with-alpha(0.16) : Theme.text.with-alpha(0.08);
-        Icon {
-            kind: IconKind.chevron-down;
-            width: 20px;
-            height: 20px;
-            color: Theme.text;
-        }
-        close-area := TouchArea {
-            mouse-cursor: pointer;
-            clicked => {
-                root.close();
-            }
-        }
     }
 }

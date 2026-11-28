@@ -106,6 +106,29 @@ pub(super) fn install(w: &AppWindow, settings: &Settings) {
             ui.send(Command::SetShortcuts(k.borrow().clone()));
         });
     });
+    let k = keys.clone();
+    w.on_capture_global_shortcut(move |e| {
+        // Only intercept modifier-based global search bindings (e.g. Ctrl+K)
+        // ahead of focused editors so bare-letter typing is never disrupted.
+        if !e.modifiers.control && !e.modifiers.alt {
+            return false;
+        }
+        let Some(key) = key_name(&e) else {
+            return false;
+        };
+        if k.borrow().action(&key) != Some("search") {
+            return false;
+        }
+        if !e.repeat {
+            with_ui(|_, w| {
+                if w.get_full_open() {
+                    w.invoke_close_full();
+                }
+                w.invoke_focus_top_search();
+            });
+        }
+        true
+    });
     w.on_shortcut_key(move |e| {
         let Some(key) = key_name(&e) else {
             return false;
@@ -144,7 +167,12 @@ pub(super) fn install(w: &AppWindow, settings: &Settings) {
                 w.invoke_cycle_repeat();
             }
             "queue" => w.invoke_toggle_panel(true),
-            "search" => ui.navigate(w, Route::Page(6)),
+            "search" => {
+                if w.get_full_open() {
+                    w.invoke_close_full();
+                }
+                w.invoke_focus_top_search();
+            }
             _ => {}
         });
         true
