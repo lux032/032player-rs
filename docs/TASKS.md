@@ -5,6 +5,8 @@
 
 ## 当前状态（2026-11-28）
 
+- **v0.2.37 正式版构建已安排**：按 4K 与宽屏桌面比例放大自定义顶壳操作区（宽屏/4K 顶壳 `56px` / 常规 `46px`；全局搜索框宽屏 `480-720 x 40px`、`15px` 字、常规 `440 x 36px`；返回/右栏图标升至与侧栏底栏一致的 `20px`，窗口控制按钮增宽至 `56px` / `48px`）。正式安装包由 `v0.2.37` 标签触发 Release 工作流生成，发布地址：https://github.com/lux032/032player-rs/releases/tag/v0.2.37 。
+- [x] 顶壳操作区 4K 比例放大 [app]：调整 `title_bar.slint`、`app.slint` 与 `keep_on_screen` 标题栏高度至宽屏/4K `56px` / 常规 `46px`，同步放大搜索框、返回/右栏按钮与窗口控制按钮，并补齐 `2560x1440`（4K @ 150%）`ui-snapshot` 快照与坐标回归。
 - **v0.2.36 正式版构建已安排**：窗口边框与外壳整体升级为「一体外壳画布（方案 D）」风格，取消系统默认标题栏，由 `38px` 自定义顶壳、左侧导航栏与底部播放条构成连续 `Theme.chrome` 外框，主内容区、右侧正在播放栏、全屏舞台与登录页统一采用 `10px` 圆角内嵌画布；顶壳收敛品牌标、返回/收起与路径提示、居中全局搜索框（移除侧栏与搜索页重复搜索框）、右栏开关及窗口操控按钮，并在 Windows 11 上通过零 `unsafe` 的 `winit 0.30` API 同步原生圆角、DWM 外框着色与阴影。正式安装包由 `v0.2.36` 标签触发 Release 工作流生成，发布地址：https://github.com/lux032/032player-rs/releases/tag/v0.2.36 。
 - [x] 窗口边框与一体外壳画布改造（方案 D / `integrated-window-chassis`）[app]：取消系统默认标题栏（`no-frame: true`、常规态 `resize-border-width: 4px` / 最大化态自动清零为 `0px`），以 `Theme.chrome` 连续外框贯通 `38px` 自定义顶壳 `TitleBar`、左侧导航栏与底部 `PlayerBar`；将主内容区（`Theme.bg`）、右侧停靠/浮层「正在播放」栏（`Theme.panel`）、`FullScreenPlayer`（`Theme.stage`）与 `LoginView`（`Theme.bg`）统一包裹为 `10px` 圆角、`1px solid Theme.border`、`8px` 间距的内嵌画布；顶壳收敛品牌标、返回/收起与路径提示、居中全局搜索框（`TopSearchBar`，移除侧栏与搜索页重复搜索框）、右栏开关（移除窄屏悬浮钮）及最小化/最大化还原/关闭按钮；宽屏侧栏与右栏拖拽手柄移入 `8px` 缝隙；弹窗遮罩与右键菜单遮罩均置于顶壳下方；新增零 `unsafe` 的 `crates/app/src/window_chrome.rs` 接入 `winit 0.30` 窗口操控与 Windows 11 DWM 圆角/外框色/阴影同步；同步更新 `tools/ui-snapshot` 坐标回归与全页面快照。
 - [ ] **[Win]** 实机验证一体外壳画布与自定义顶壳：
